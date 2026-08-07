@@ -2,10 +2,11 @@ import { useCallback, useRef, useState, type DragEvent, type ChangeEvent } from 
 
 interface Props {
   disabled?: boolean;
+  compact?: boolean;
   onFile: (file: File) => void;
 }
 
-export function UploadZone({ disabled, onFile }: Props) {
+export function UploadZone({ disabled, compact, onFile }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -30,7 +31,7 @@ export function UploadZone({ disabled, onFile }: Props) {
 
   return (
     <div
-      className={`upload-zone ${dragging ? 'dragging' : ''} ${disabled ? 'disabled' : ''}`}
+      className={`upload-zone ${compact ? 'compact' : ''} ${dragging ? 'dragging' : ''} ${disabled ? 'disabled' : ''}`}
       onDragOver={(e) => {
         e.preventDefault();
         setDragging(true);
@@ -44,12 +45,14 @@ export function UploadZone({ disabled, onFile }: Props) {
         if (e.key === 'Enter' || e.key === ' ') inputRef.current?.click();
       }}
     >
-      <div className="upload-icon" aria-hidden>
-        ↑
-      </div>
-      <p className="upload-title">拖拽 Playable 文件到此处</p>
-      <p className="upload-sub">支持 .zip / .html — 或</p>
-      <button type="button" className="btn-primary" disabled={disabled}>
+      {!compact && (
+        <div className="upload-icon" aria-hidden>
+          ↑
+        </div>
+      )}
+      <p className="upload-title">{compact ? '拖拽或选择 Playable 文件' : '拖拽 Playable 文件到此处'}</p>
+      <p className="upload-sub">支持 .zip / .html{compact ? '' : ' — 或'}</p>
+      <button type="button" className={`btn-primary${compact ? ' btn-compact' : ''}`} disabled={disabled}>
         选择文件
       </button>
       <input

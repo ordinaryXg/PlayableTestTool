@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('pvDesktop', {
   setPreviewVfs: (payload) => ipcRenderer.invoke('pv:setPreviewVfs', payload),
   showPreview: (metrics) => ipcRenderer.invoke('pv:showPreview', metrics),
   hidePreview: () => ipcRenderer.invoke('pv:hidePreview'),
+  revealPreview: () => ipcRenderer.invoke('pv:revealPreview'),
   reloadPreview: (metrics) => ipcRenderer.invoke('pv:reloadPreview', metrics),
   updatePreviewBounds: (bounds) => ipcRenderer.invoke('pv:updatePreviewBounds', bounds),
   applyPreviewMetrics: (metrics) => ipcRenderer.invoke('pv:applyPreviewMetrics', metrics),

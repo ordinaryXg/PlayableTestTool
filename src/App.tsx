@@ -45,6 +45,12 @@ export default function App() {
   const [fpsStats, setFpsStats] = useState<FpsStats | null>(null);
   const [desktopPreset, setDesktopPreset] = useState<DesktopPreset | null>(null);
   const [desktopPresets, setDesktopPresets] = useState<DesktopPresetListItem[]>([]);
+  const [rightTab, setRightTab] = useState<'preview' | 'console'>('preview');
+  const [consoleUnread, setConsoleUnread] = useState(false);
+  const rightTabRef = useRef(rightTab);
+  useEffect(() => {
+    rightTabRef.current = rightTab;
+  }, [rightTab]);
 
   const vfsRef = useRef<Vfs | null>(null);
   const entryRef = useRef<string | null>(null);
@@ -70,6 +76,9 @@ export default function App() {
       const next = [...prev, line];
       return next.length > MAX_CONSOLE_LINES ? next.slice(-MAX_CONSOLE_LINES) : next;
     });
+    if (rightTabRef.current !== 'console') {
+      setConsoleUnread(true);
+    }
   }, []);
 
   const revokePreview = useCallback(() => {
@@ -83,6 +92,7 @@ export default function App() {
 
   const clearConsole = useCallback(() => {
     setConsoleLines([]);
+    setConsoleUnread(false);
   }, []);
 
   const applyMerged = useCallback(() => {
@@ -216,6 +226,9 @@ export default function App() {
           const shown = await api.showPreview(metricsRef.current);
           if (!shown.ok) throw new Error(shown.error || '预览打开失败');
           setPreviewUrl(ELECTRON_PREVIEW_TOKEN);
+          if (rightTabRef.current !== 'preview') {
+            await api.hidePreview();
+          }
           startProbeCapture();
           return;
         }
@@ -336,6 +349,24 @@ export default function App() {
     if (api) void api.updatePreviewBounds(bounds);
   };
 
+  const selectRightTab = (tab: 'preview' | 'console') => {
+    setRightTab(tab);
+    const api = getDesktopApi();
+    if (tab === 'console') {
+      setConsoleUnread(false);
+      if (api) void api.hidePreview();
+      return;
+    }
+    if (api && previewUrl === ELECTRON_PREVIEW_TOKEN) {
+      void (async () => {
+        const revealed = await api.revealPreview();
+        if (!revealed.ok) {
+          await api.showPreview(metricsRef.current);
+        }
+      })();
+    }
+  };
+
   return (
     <div className="app">
       <header className="topbar">
@@ -353,49 +384,84 @@ export default function App() {
         <MarketSelect value={marketId} onChange={setMarketId} />
       </header>
 
-      <main className="waterfall">
-        <section className="wf-section wf-upload">
-          <div className="section-head">
-            <h2>上传素材</h2>
+      <main className="workspace">
+        <section className="pane pane-left">
+          <div className="pane-block pane-upload">
+            <div className="section-head">
+              <h2>上传素材</h2>
+            </div>
+            <UploadZone compact onFile={(f) => void runValidation(f)} />
+            {status && <div className="status">{status}</div>}
           </div>
-          <UploadZone onFile={(f) => void runValidation(f)} />
-          {status && <div className="status">{status}</div>}
+
+          <div className="pane-block pane-report">
+            <div className="section-head">
+              <h2>素材检测</h2>
+            </div>
+            <div className="report-scroll">
+              <ReportPanel
+                report={report}
+                marketLabel={market.labelZh}
+                selected={selected}
+                onSelect={setSelected}
+              />
+            </div>
+          </div>
         </section>
 
-        <section className="wf-section wf-preview">
-          <PreviewPane
-            previewUrl={previewUrl}
-            busy={probeBusy}
-            error={previewError}
-            fpsStats={fpsStats}
-            desktop={desktop}
-            desktopPreset={desktopPreset}
-            desktopPresets={desktopPresets}
-            onRefresh={onRefresh}
-            onRecapture={onRecapture}
-            onPresetChange={(id) => void onPresetChange(id)}
-            onMetricsChange={onMetricsChange}
-            onPreviewBounds={onPreviewBounds}
-          />
-        </section>
-
-        <section className="wf-section wf-console">
-          <div className="section-head">
-            <h2>控制台输出</h2>
+        <section className="pane pane-right">
+          <div className="right-tabs" role="tablist" aria-label="预览与控制台">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={rightTab === 'preview'}
+              className={`right-tab${rightTab === 'preview' ? ' active' : ''}`}
+              onClick={() => selectRightTab('preview')}
+            >
+              预览
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={rightTab === 'console'}
+              className={`right-tab${rightTab === 'console' ? ' active' : ''}`}
+              onClick={() => selectRightTab('console')}
+            >
+              控制台
+              {consoleUnread && <span className="tab-dot" aria-label="有新日志" />}
+            </button>
           </div>
-          <ConsolePanel lines={consoleLines} onClear={clearConsole} />
-        </section>
 
-        <section className="wf-section wf-report">
-          <div className="section-head">
-            <h2>素材检测</h2>
+          <div
+            className={`tab-panel tab-preview${rightTab === 'preview' ? ' active' : ''}`}
+            role="tabpanel"
+            hidden={rightTab !== 'preview'}
+          >
+            <PreviewPane
+              previewUrl={previewUrl}
+              busy={probeBusy}
+              error={previewError}
+              fpsStats={fpsStats}
+              desktop={desktop}
+              desktopPreset={desktopPreset}
+              desktopPresets={desktopPresets}
+              embedded
+              active={rightTab === 'preview'}
+              onRefresh={onRefresh}
+              onRecapture={onRecapture}
+              onPresetChange={(id) => void onPresetChange(id)}
+              onMetricsChange={onMetricsChange}
+              onPreviewBounds={onPreviewBounds}
+            />
           </div>
-          <ReportPanel
-            report={report}
-            marketLabel={market.labelZh}
-            selected={selected}
-            onSelect={setSelected}
-          />
+
+          <div
+            className={`tab-panel tab-console${rightTab === 'console' ? ' active' : ''}`}
+            role="tabpanel"
+            hidden={rightTab !== 'console'}
+          >
+            <ConsolePanel lines={consoleLines} onClear={clearConsole} />
+          </div>
         </section>
       </main>
     </div>

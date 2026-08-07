@@ -77,10 +77,10 @@ let memoryTimer = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1100,
-    height: 960,
+    width: 1200,
+    height: 800,
     minWidth: 840,
-    minHeight: 700,
+    minHeight: 640,
     title: 'Playable 合规检测器',
     backgroundColor: '#0f1419',
     webPreferences: {
@@ -198,6 +198,7 @@ function registerIpc() {
     previewManager.hidePreview();
     return { ok: true };
   });
+  ipcMain.handle('pv:revealPreview', () => previewManager.revealPreview());
   ipcMain.handle('pv:reloadPreview', async (_e, metrics) => previewManager.reloadPreview(metrics));
   ipcMain.handle('pv:updatePreviewBounds', (_e, b) => {
     previewManager.updateBounds(b);

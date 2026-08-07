@@ -21,6 +21,10 @@ interface Props {
   onPresetChange?: (id: string) => void;
   onMetricsChange?: (metrics: { width: number; height: number; dpr: number }) => void;
   onPreviewBounds?: (bounds: { x: number; y: number; width: number; height: number }) => void;
+  /** When true, omit the standalone section heading (parent provides Tab chrome). */
+  embedded?: boolean;
+  /** When false, skip bounds reporting (e.g. console tab active). */
+  active?: boolean;
 }
 
 const ELECTRON_PREVIEW_TOKEN = 'electron://preview';
@@ -38,6 +42,8 @@ export function PreviewPane({
   onPresetChange,
   onMetricsChange,
   onPreviewBounds,
+  embedded = false,
+  active = true,
 }: Props) {
   const [sizeId, setSizeId] = useState(DEFAULT_PREVIEW_SIZE_ID);
   const size = useMemo(() => getPreviewSize(sizeId), [sizeId]);
@@ -53,7 +59,7 @@ export function PreviewPane({
   }, [size.w, size.h, onMetricsChange]);
 
   useEffect(() => {
-    if (!isElectronPreview || !frameRef.current || !onPreviewBounds) return;
+    if (!active || !isElectronPreview || !frameRef.current || !onPreviewBounds) return;
     const el = frameRef.current;
     const report = () => {
       const rect = el.getBoundingClientRect();
@@ -74,7 +80,7 @@ export function PreviewPane({
       window.removeEventListener('resize', report);
       window.removeEventListener('scroll', report, true);
     };
-  }, [isElectronPreview, onPreviewBounds, size.w, size.h, previewUrl]);
+  }, [active, isElectronPreview, onPreviewBounds, size.w, size.h, previewUrl]);
 
   const fps = fpsStats?.fps ?? null;
   const fpsClass =
@@ -89,10 +95,12 @@ export function PreviewPane({
   };
 
   return (
-    <div className="preview-pane">
-      <div className="section-head">
-        <h2>预览窗口</h2>
-      </div>
+    <div className={`preview-pane${embedded ? ' embedded' : ''}`}>
+      {!embedded && (
+        <div className="section-head">
+          <h2>预览窗口</h2>
+        </div>
+      )}
 
       <div className="preview-toolbar">
         <div className="preview-selects">

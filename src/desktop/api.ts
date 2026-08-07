@@ -35,6 +35,7 @@ export type PvDesktopApi = {
     error?: string;
   }>;
   hidePreview: () => Promise<{ ok: boolean }>;
+  revealPreview: () => Promise<{ ok: boolean; error?: string }>;
   reloadPreview: (metrics?: { width: number; height: number; dpr: number }) => Promise<{
     ok: boolean;
   }>;

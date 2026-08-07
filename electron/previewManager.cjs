@@ -201,6 +201,14 @@ function hidePreview() {
   }
 }
 
+/** Re-show without reloading (used when switching back from Console tab). */
+function revealPreview() {
+  if (!previewView) return { ok: false, error: 'no-view' };
+  visible = true;
+  updateBounds(bounds);
+  return { ok: true };
+}
+
 async function reloadPreview(metricsOverride) {
   if (!previewView || !visible) return { ok: false };
   const preset = getPreset(currentPresetId);
@@ -222,6 +230,7 @@ module.exports = {
   updateBounds,
   showPreview,
   hidePreview,
+  revealPreview,
   reloadPreview,
   applyMetrics,
   getPreviewWebContents: () => previewView?.webContents || null,
