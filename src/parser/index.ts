@@ -69,9 +69,14 @@ function pushRef(
   if (!trimmed || trimmed.startsWith('data:') || trimmed.startsWith('blob:') || trimmed.startsWith('#')) {
     return;
   }
+  // Skip javascript: / mailto: etc.
+  if (/^(javascript|mailto|tel):/i.test(trimmed)) return;
   const isExternal =
     /^(https?:)?\/\//i.test(trimmed) ||
     (/^[a-z][a-z0-9+.-]*:/i.test(trimmed) && !trimmed.toLowerCase().startsWith('javascript:'));
+
+  if (!isExternal && !isPlausibleAssetRef(trimmed)) return;
+
   list.push({
     fromPath,
     raw: trimmed,
@@ -81,11 +86,50 @@ function pushRef(
   });
 }
 
+/** Reject mime fragments / extension-only / garbage often found inside inlined playable code. */
+function isPlausibleAssetRef(raw: string): boolean {
+  const decoded = raw.split(/[?#]/)[0].trim();
+  if (!decoded) return false;
+  // ".png" / ".js" — not a real file path
+  if (/^\.\w{1,10}$/i.test(decoded)) return false;
+  // "image/png" mime type mistaken as path
+  if (/^(image|audio|video|application|text|font)\/[\w.+-]+$/i.test(decoded)) return false;
+  // must have a non-empty basename stem (foo.png, not .png)
+  const base = decoded.replace(/\\/g, '/').split('/').pop() || '';
+  if (!base || base === '.' || base === '..') return false;
+  if (/^\.\w+$/i.test(base)) return false;
+  return true;
+}
+
+/**
+ * Remove script/style/noscript bodies so we don't treat string literals inside
+ * inlined playable bundles as real <img src> / <link href> tags.
+ * External <script src> / <link href> opening tags are preserved.
+ */
+function scrubInlineBodies(html: string): string {
+  return html
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<script\b([^>]*)>[\s\S]*?<\/script>/gi, (_, attrs: string) => {
+      // keep opening tag if it may declare src; drop body always
+      return `<script${attrs}></script>`;
+    })
+    .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, '')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
+}
+
 function collectFromHtml(html: string, fromPath: string, list: ResourceRef[]): void {
+  // Real <style> blocks (before scrub) — skip data: urls inside via pushRef
+  const styleTagRe = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
+  let sm: RegExpExecArray | null;
+  while ((sm = styleTagRe.exec(html))) {
+    collectCssUrls(sm[1], fromPath, list);
+  }
+
+  const markup = scrubInlineBodies(html);
   const tagRe =
     /<(script|link|img|iframe|source|video|audio|embed|object)\b([^>]*)>/gi;
   let m: RegExpExecArray | null;
-  while ((m = tagRe.exec(html))) {
+  while ((m = tagRe.exec(markup))) {
     const tag = m[1].toLowerCase();
     const attrs = m[2];
     const src = /(?:src|href)\s*=\s*["']([^"']+)["']/i.exec(attrs)?.[1];
@@ -103,8 +147,8 @@ function collectFromHtml(html: string, fromPath: string, list: ResourceRef[]): v
     pushRef(list, fromPath, src, kind);
   }
 
-  // inline style url()
-  const styleBlocks = html.matchAll(/style\s*=\s*["']([^"']+)["']/gi);
+  // element inline style="..." on real markup only
+  const styleBlocks = markup.matchAll(/style\s*=\s*["']([^"']+)["']/gi);
   for (const s of styleBlocks) collectCssUrls(s[1], fromPath, list);
 }
 
@@ -120,17 +164,26 @@ function collectCssUrls(css: string, fromPath: string, list: ResourceRef[]): voi
   }
 }
 
+function looksLikeFilePath(s: string): boolean {
+  if (!s || s.length > 512) return false;
+  if (/^(https?:)?\/\//i.test(s) || s.startsWith('data:') || s.startsWith('blob:')) return true;
+  const n = s.replace(/\\/g, '/');
+  // relative/absolute path or simple filename with a normal extension
+  return /^(?:\.\.?\/|\/)?[^?\s#]+?\.\w{1,8}$/i.test(n);
+}
+
 function collectFromJs(js: string, fromPath: string, list: ResourceRef[]): void {
+  // JS 内路径仅用于第三方/安全 URL 等启发式，不参与 missing-assets。
+  // 忽略 base64，避免噪声。
+  const scrubbed = js.replace(/data:[^;]+;base64,[A-Za-z0-9+/=\s]+/gi, 'data:stripped');
+
   const re =
-    /(?:src\s*=\s*|href\s*=\s*|load[A-Za-z]*\(\s*|new\s+Image\(\)[\s\S]{0,40}?\.src\s*=\s*|fetch\(\s*|open\(\s*['"](?:GET|POST)['"]\s*,\s*)['"]([^'"]+)['"]/gi;
+    /(?:fetch\(\s*|open\(\s*['"](?:GET|POST)['"]\s*,\s*|new\s+WebSocket\(\s*)['"]([^'"]+)['"]/gi;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(js))) {
-    pushRef(list, fromPath, m[1], 'js-url');
-  }
-  // simple string paths ending with asset extensions
-  const assetRe = /['"]([^'"]+\.(?:png|jpe?g|gif|svg|js|css|json|mp[34]|wav|ogg|woff2?|ttf|otf))['"]/gi;
-  while ((m = assetRe.exec(js))) {
-    pushRef(list, fromPath, m[1], 'js-url');
+  while ((m = re.exec(scrubbed))) {
+    if (looksLikeFilePath(m[1]) || /^(https?:)?\/\//i.test(m[1])) {
+      pushRef(list, fromPath, m[1], 'js-url');
+    }
   }
 }
 

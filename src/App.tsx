@@ -9,18 +9,31 @@ import {
   runStatic,
 } from './engine';
 import { DEFAULT_MARKET_ID, getMarket } from './markets';
-import { buildProbeScript } from './markets/google-app-playable/probes';
+import { buildPreviewInjection } from './markets/google-app-playable/probes';
 import { buildPreview, type PreviewHandle } from './preview/buildPreview';
 import { listenProbeEvents } from './preview/bridge';
+import { buildDevtoolsScript, type ConsoleLine, type FpsStats } from './preview/devtools';
+import {
+  base64ToFile,
+  getDesktopApi,
+  isElectronDesktop,
+  vfsToBase64Map,
+  type DesktopPreset,
+  type DesktopPresetListItem,
+} from './desktop/api';
 import { UploadZone } from './ui/UploadZone';
 import { ReportPanel } from './ui/ReportPanel';
 import { PreviewPane } from './ui/PreviewPane';
+import { ConsolePanel } from './ui/ConsolePanel';
 import { MarketSelect } from './ui/MarketSelect';
 import './styles.css';
 
 const PROBE_WINDOW_MS = 4000;
+const MAX_CONSOLE_LINES = 500;
+const ELECTRON_PREVIEW_TOKEN = 'electron://preview';
 
 export default function App() {
+  const desktop = isElectronDesktop();
   const [marketId, setMarketId] = useState(DEFAULT_MARKET_ID);
   const [report, setReport] = useState<ValidationReport | null>(null);
   const [selected, setSelected] = useState<Finding | null>(null);
@@ -28,6 +41,10 @@ export default function App() {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [probeBusy, setProbeBusy] = useState(false);
   const [status, setStatus] = useState<string>('');
+  const [consoleLines, setConsoleLines] = useState<ConsoleLine[]>([]);
+  const [fpsStats, setFpsStats] = useState<FpsStats | null>(null);
+  const [desktopPreset, setDesktopPreset] = useState<DesktopPreset | null>(null);
+  const [desktopPresets, setDesktopPresets] = useState<DesktopPresetListItem[]>([]);
 
   const vfsRef = useRef<Vfs | null>(null);
   const entryRef = useRef<string | null>(null);
@@ -36,14 +53,37 @@ export default function App() {
   const previewHandleRef = useRef<PreviewHandle | null>(null);
   const probeEventsRef = useRef<ProbeEvent[]>([]);
   const probeTimerRef = useRef<number | null>(null);
+  const consoleIdRef = useRef(0);
+  const metricsRef = useRef({ width: 320, height: 480, dpr: 2 });
 
   const market = getMarket(marketId);
 
-  const revokePreview = () => {
+  const pushConsole = useCallback((level: string, message: string, at = Date.now()) => {
+    consoleIdRef.current += 1;
+    const line: ConsoleLine = {
+      id: consoleIdRef.current,
+      level,
+      message,
+      at,
+    };
+    setConsoleLines((prev) => {
+      const next = [...prev, line];
+      return next.length > MAX_CONSOLE_LINES ? next.slice(-MAX_CONSOLE_LINES) : next;
+    });
+  }, []);
+
+  const revokePreview = useCallback(() => {
     previewHandleRef.current?.revoke();
     previewHandleRef.current = null;
     setPreviewUrl(null);
-  };
+    setFpsStats(null);
+    const api = getDesktopApi();
+    if (api) void api.hidePreview();
+  }, []);
+
+  const clearConsole = useCallback(() => {
+    setConsoleLines([]);
+  }, []);
 
   const applyMerged = useCallback(() => {
     const ctx = ctxRef.current;
@@ -64,24 +104,122 @@ export default function App() {
   }, [applyMerged]);
 
   useEffect(() => {
-    return listenProbeEvents((ev) => {
-      probeEventsRef.current.push(ev);
-    });
-  }, []);
+    if (!desktop) {
+      return listenProbeEvents((ev) => {
+        if (ev.type === 'console') {
+          pushConsole(String(ev.detail.level || 'log'), String(ev.detail.message || ''), ev.at);
+          return;
+        }
+        if (ev.type === 'fps') {
+          const value = Number(ev.detail.fps);
+          if (!Number.isFinite(value)) return;
+          setFpsStats({
+            fps: value,
+            heapUsedMB:
+              typeof ev.detail.heapUsedMB === 'number' ? ev.detail.heapUsedMB : undefined,
+            heapLimitMB:
+              typeof ev.detail.heapLimitMB === 'number' ? ev.detail.heapLimitMB : undefined,
+          });
+          return;
+        }
+        probeEventsRef.current.push(ev);
+      });
+    }
 
-  useEffect(() => {
+    const api = getDesktopApi();
+    if (!api) return;
+    void api.getPreset().then(setDesktopPreset);
+    void api.listPresets().then(setDesktopPresets);
+    const offConsole = api.onConsole((data) => {
+      pushConsole(data.level, data.source ? `${data.message} (${data.source})` : data.message, data.at);
+    });
+    const offProbe = api.onProbe((data) => {
+      if (!data || data.source !== 'playable-validator-probe') return;
+      if (data.type === 'console') {
+        pushConsole(
+          String(data.detail?.level || 'log'),
+          String(data.detail?.message || ''),
+          data.at || Date.now(),
+        );
+        return;
+      }
+      if (data.type === 'fps') {
+        const value = Number(data.detail?.fps);
+        if (!Number.isFinite(value)) return;
+        setFpsStats({
+          fps: value,
+          heapUsedMB:
+            typeof data.detail?.heapUsedMB === 'number' ? data.detail.heapUsedMB : undefined,
+          heapLimitMB:
+            typeof data.detail?.heapLimitMB === 'number' ? data.detail.heapLimitMB : undefined,
+        });
+        return;
+      }
+      probeEventsRef.current.push({
+        type: data.type as ProbeEvent['type'],
+        detail: data.detail || {},
+        at: data.at || Date.now(),
+      });
+    });
+    const offMem = api.onMemoryWarning((data) => {
+      pushConsole(
+        'warn',
+        `[OOM预警] ${data.type} 进程占用 ${data.mb}MB（档位阈值 ${data.limitMb}MB）`,
+        data.at,
+      );
+    });
+    const offFps = api.onFps((data) => {
+      if (!Number.isFinite(data.fps)) return;
+      setFpsStats({
+        fps: data.fps,
+        heapUsedMB: data.heapUsedMB,
+        heapLimitMB: data.heapLimitMB,
+      });
+    });
+
+    // Session restore after relaunch
+    void (async () => {
+      const restored = await api.loadRestoredBundle();
+      if (!restored) return;
+      pushConsole('info', `检测到重启前素材缓存：${restored.fileName}，正在自动恢复…`);
+      const file = base64ToFile(restored.fileName, restored.base64);
+      setTimeout(() => {
+        void runValidationRef.current?.(file);
+      }, 50);
+    })();
+
     return () => {
-      revokePreview();
-      if (probeTimerRef.current) window.clearTimeout(probeTimerRef.current);
+      offConsole();
+      offProbe();
+      offMem();
+      offFps();
     };
-  }, []);
+  }, [desktop, pushConsole]);
 
   const mountPreview = useCallback(
     async (vfs: Vfs, entry: string) => {
       revokePreview();
       setPreviewError(null);
+      setConsoleLines([]);
+      setFpsStats(null);
       try {
-        const probeScript = buildProbeScript(market.probes);
+        const api = getDesktopApi();
+        const probeScript = buildPreviewInjection(market.probes, buildDevtoolsScript());
+        if (api) {
+          const files = await vfsToBase64Map(vfs);
+          const setRes = await api.setPreviewVfs({
+            entryHtmlPath: entry,
+            files,
+            injectScript: probeScript,
+          });
+          if (!setRes.ok) throw new Error(setRes.error || 'VFS 同步失败');
+          const shown = await api.showPreview(metricsRef.current);
+          if (!shown.ok) throw new Error(shown.error || '预览打开失败');
+          setPreviewUrl(ELECTRON_PREVIEW_TOKEN);
+          startProbeCapture();
+          return;
+        }
+
         const handle = await buildPreview(vfs, entry, probeScript);
         previewHandleRef.current = handle;
         setPreviewUrl(handle.url);
@@ -90,7 +228,7 @@ export default function App() {
         setPreviewError(err instanceof Error ? err.message : String(err));
       }
     },
-    [market.probes, startProbeCapture],
+    [market.probes, revokePreview, startProbeCapture],
   );
 
   const runValidation = useCallback(
@@ -99,6 +237,22 @@ export default function App() {
       setSelected(null);
       revokePreview();
       setPreviewError(null);
+      setConsoleLines([]);
+
+      const api = getDesktopApi();
+      if (api) {
+        try {
+          const buf = new Uint8Array(await file.arrayBuffer());
+          let binary = '';
+          const chunk = 0x8000;
+          for (let i = 0; i < buf.length; i += chunk) {
+            binary += String.fromCharCode(...buf.subarray(i, i + chunk));
+          }
+          await api.saveBundleForRestore({ fileName: file.name, base64: btoa(binary) });
+        } catch {
+          /* ignore cache failures */
+        }
+      }
 
       const loaded = await loadBundle(file);
       vfsRef.current = loaded.vfs;
@@ -119,7 +273,7 @@ export default function App() {
       const staticFindings = [...loaded.findings, ...runStatic(ctx)];
       staticFindingsRef.current = staticFindings;
       setReport(buildReport(staticFindings, ctx));
-      setStatus('静态检测完成');
+      setStatus(desktop ? '静态检测完成（Electron 预览）' : '静态检测完成');
 
       const hasZipError = loaded.findings.some((f) => f.ruleId === 'zip-format' && f.severity === 'error');
       if (!hasZipError && entry) {
@@ -128,8 +282,20 @@ export default function App() {
         setPreviewError('未找到可预览的主 HTML');
       }
     },
-    [market, mountPreview],
+    [desktop, market, mountPreview, revokePreview],
   );
+
+  const runValidationRef = useRef(runValidation);
+  useEffect(() => {
+    runValidationRef.current = runValidation;
+  }, [runValidation]);
+
+  useEffect(() => {
+    return () => {
+      revokePreview();
+      if (probeTimerRef.current) window.clearTimeout(probeTimerRef.current);
+    };
+  }, [revokePreview]);
 
   const onRefresh = () => {
     if (vfsRef.current && entryRef.current) {
@@ -139,11 +305,35 @@ export default function App() {
 
   const onRecapture = () => {
     startProbeCapture();
-    // force iframe reload to re-fire early network
-    if (previewUrl) {
+    const api = getDesktopApi();
+    if (api && previewUrl === ELECTRON_PREVIEW_TOKEN) {
+      void api.reloadPreview(metricsRef.current);
+      return;
+    }
+    if (previewUrl && previewHandleRef.current) {
       setPreviewUrl(null);
       requestAnimationFrame(() => setPreviewUrl(previewHandleRef.current?.url ?? null));
     }
+  };
+
+  const onPresetChange = async (id: string) => {
+    const api = getDesktopApi();
+    if (!api) return;
+    pushConsole('info', `正在切换设备档位为 ${id}，应用将重启…`);
+    await api.setPreset(id);
+  };
+
+  const onMetricsChange = (metrics: { width: number; height: number; dpr: number }) => {
+    metricsRef.current = metrics;
+    const api = getDesktopApi();
+    if (api && previewUrl === ELECTRON_PREVIEW_TOKEN) {
+      void api.applyPreviewMetrics(metrics);
+    }
+  };
+
+  const onPreviewBounds = (bounds: { x: number; y: number; width: number; height: number }) => {
+    const api = getDesktopApi();
+    if (api) void api.updatePreviewBounds(bounds);
   };
 
   return (
@@ -153,30 +343,58 @@ export default function App() {
           <span className="brand-mark">PV</span>
           <div>
             <h1>Playable 合规检测器</h1>
-            <p>本地检测 · 文件不离开浏览器</p>
+            <p>
+              {desktop
+                ? `Electron 桌面版 · 档位 ${desktopPreset?.label ?? '…'}`
+                : '本地检测 · 文件不离开浏览器'}
+            </p>
           </div>
         </div>
         <MarketSelect value={marketId} onChange={setMarketId} />
       </header>
 
-      <main className="layout">
-        <section className="left">
+      <main className="waterfall">
+        <section className="wf-section wf-upload">
+          <div className="section-head">
+            <h2>上传素材</h2>
+          </div>
           <UploadZone onFile={(f) => void runValidation(f)} />
           {status && <div className="status">{status}</div>}
+        </section>
+
+        <section className="wf-section wf-preview">
+          <PreviewPane
+            previewUrl={previewUrl}
+            busy={probeBusy}
+            error={previewError}
+            fpsStats={fpsStats}
+            desktop={desktop}
+            desktopPreset={desktopPreset}
+            desktopPresets={desktopPresets}
+            onRefresh={onRefresh}
+            onRecapture={onRecapture}
+            onPresetChange={(id) => void onPresetChange(id)}
+            onMetricsChange={onMetricsChange}
+            onPreviewBounds={onPreviewBounds}
+          />
+        </section>
+
+        <section className="wf-section wf-console">
+          <div className="section-head">
+            <h2>控制台输出</h2>
+          </div>
+          <ConsolePanel lines={consoleLines} onClear={clearConsole} />
+        </section>
+
+        <section className="wf-section wf-report">
+          <div className="section-head">
+            <h2>素材检测</h2>
+          </div>
           <ReportPanel
             report={report}
             marketLabel={market.labelZh}
             selected={selected}
             onSelect={setSelected}
-          />
-        </section>
-        <section className="right">
-          <PreviewPane
-            previewUrl={previewUrl}
-            busy={probeBusy}
-            error={previewError}
-            onRefresh={onRefresh}
-            onRecapture={onRecapture}
           />
         </section>
       </main>

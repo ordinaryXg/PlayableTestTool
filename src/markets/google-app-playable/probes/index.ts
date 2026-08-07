@@ -1,12 +1,18 @@
-import type { Finding, Probe, ProbeEvent, RuleContext } from '../../../types';
+import type { Finding, Probe } from '../../../types';
 import { isAllowedExternalUrl } from '../limits';
 
 /** Shared probe bootstrap: defines __pvPost and hooks. Concatenated into wrapper. */
 export const PROBE_BOOTSTRAP = `
 (function(){
   function __pvPost(type, detail){
+    var msg = { source: 'playable-validator-probe', type: type, detail: detail || {}, at: Date.now() };
     try {
-      parent.postMessage({ source: 'playable-validator-probe', type: type, detail: detail || {}, at: Date.now() }, '*');
+      if (window.pvDesktopProbe && typeof window.pvDesktopProbe.post === 'function') {
+        window.pvDesktopProbe.post(msg);
+      }
+    } catch (e) {}
+    try {
+      parent.postMessage(msg, '*');
     } catch (e) {}
   }
   window.__pvPost = __pvPost;
@@ -17,61 +23,46 @@ export const networkProbe: Probe = {
   id: 'network',
   script: `
 (function(){
+  try {
   var post = window.__pvPost;
   function report(url, via){
     if (!url) return;
     try { post('network', { url: String(url), via: via }); } catch(e) {}
   }
-  var ofetch = window.fetch;
-  if (ofetch) {
+  // 只挂钩 fetch / XHR / DOM 新增节点，避免改写 Image/WebSocket 构造器导致引擎报错
+  if (window.fetch) {
+    var ofetch = window.fetch.bind(window);
     window.fetch = function(input, init){
-      var url = typeof input === 'string' ? input : (input && input.url);
-      report(url, 'fetch');
-      return ofetch.apply(this, arguments);
+      try {
+        var url = typeof input === 'string' ? input : (input && input.url);
+        report(url, 'fetch');
+      } catch (e) {}
+      return ofetch(input, init);
     };
   }
-  var XO = XMLHttpRequest.prototype.open;
-  XMLHttpRequest.prototype.open = function(method, url){
-    report(url, 'xhr');
-    return XO.apply(this, arguments);
-  };
-  var NativeImage = window.Image;
-  window.Image = function(){
-    var img = new NativeImage();
-    var desc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src') ||
-               Object.getOwnPropertyDescriptor(Image.prototype, 'src');
-    if (desc && desc.set) {
-      Object.defineProperty(img, 'src', {
-        set: function(v){ report(v, 'image'); desc.set.call(this, v); },
-        get: function(){ return desc.get ? desc.get.call(this) : ''; }
-      });
-    }
-    return img;
-  };
-  window.Image.prototype = NativeImage.prototype;
-
-  var Obs = window.MutationObserver;
-  if (Obs) {
-    new Obs(function(muts){
-      muts.forEach(function(m){
-        m.addedNodes && m.addedNodes.forEach(function(n){
-          if (!n || n.nodeType !== 1) return;
-          var tag = n.tagName;
-          if (tag === 'SCRIPT' || tag === 'IMG' || tag === 'IFRAME' || tag === 'LINK') {
-            report(n.src || n.href, tag.toLowerCase());
-          }
+  if (window.XMLHttpRequest && XMLHttpRequest.prototype) {
+    var XO = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url){
+      try { report(url, 'xhr'); } catch (e) {}
+      return XO.apply(this, arguments);
+    };
+  }
+  if (window.MutationObserver && document.documentElement) {
+    try {
+      new MutationObserver(function(muts){
+        muts.forEach(function(m){
+          m.addedNodes && m.addedNodes.forEach(function(n){
+            if (!n || n.nodeType !== 1) return;
+            var tag = n.tagName;
+            if (tag === 'SCRIPT' || tag === 'IMG' || tag === 'IFRAME' || tag === 'LINK') {
+              report(n.src || n.href, tag.toLowerCase());
+            }
+          });
         });
-      });
-    }).observe(document.documentElement, { childList: true, subtree: true });
+      }).observe(document.documentElement, { childList: true, subtree: true });
+    } catch (e) {}
   }
-  if (window.WebSocket) {
-    var WS = window.WebSocket;
-    window.WebSocket = function(url, protocols){
-      report(url, 'websocket');
-      return protocols !== undefined ? new WS(url, protocols) : new WS(url);
-    };
-    window.WebSocket.prototype = WS.prototype;
-  }
+  } catch (e) {}
 })();
 `,
   toFindings: (events, ctx) => {
@@ -103,24 +94,27 @@ export const exitProbe: Probe = {
   id: 'exit',
   script: `
 (function(){
+  try {
   var post = window.__pvPost;
   var count = 0;
   function onExit(via){
     count += 1;
-    post('exit', { via: via, count: count });
+    try { post('exit', { via: via, count: count }); } catch (e) {}
   }
   function wrapExitApi(){
-    var E = window.ExitApi || window.ExitAPI;
-    if (!E) return false;
-    var orig = E.exit;
-    if (typeof orig === 'function' && !orig.__pvWrapped) {
-      E.exit = function(){
-        onExit('ExitApi.exit');
-        return orig.apply(this, arguments);
-      };
-      E.exit.__pvWrapped = true;
-    }
-    return true;
+    try {
+      var E = window.ExitApi || window.ExitAPI;
+      if (!E) return false;
+      var orig = E.exit;
+      if (typeof orig === 'function' && !orig.__pvWrapped) {
+        E.exit = function(){
+          onExit('ExitApi.exit');
+          return orig.apply(this, arguments);
+        };
+        E.exit.__pvWrapped = true;
+      }
+      return true;
+    } catch (e) { return false; }
   }
   wrapExitApi();
   var tries = 0;
@@ -129,15 +123,18 @@ export const exitProbe: Probe = {
   }, 100);
 
   document.addEventListener('click', function(e){
-    var el = e.target;
-    var hops = 0;
-    while (el && hops < 5) {
-      if (el.tagName === 'A' && el.href && !String(el.getAttribute('href')||'').startsWith('#')) {
-        post('navigation', { href: el.href });
+    try {
+      var el = e.target;
+      var hops = 0;
+      while (el && hops < 5) {
+        if (el.tagName === 'A' && el.href && !String(el.getAttribute('href')||'').startsWith('#')) {
+          post('navigation', { href: el.href });
+        }
+        el = el.parentElement; hops++;
       }
-      el = el.parentElement; hops++;
-    }
+    } catch (err) {}
   }, true);
+  } catch (e) {}
 })();
 `,
   toFindings: (events, _ctx) => {
@@ -160,50 +157,13 @@ export const exitProbe: Probe = {
   },
 };
 
-export const storageProbe: Probe = {
-  id: 'storage',
-  script: `
-(function(){
-  var post = window.__pvPost;
-  ['localStorage','sessionStorage'].forEach(function(name){
-    try {
-      var s = window[name];
-      if (!s) return;
-      ['setItem','getItem','removeItem','clear'].forEach(function(method){
-        var orig = s[method].bind(s);
-        s[method] = function(){
-          post('storage', { api: name, method: method });
-          return orig.apply(null, arguments);
-        };
-      });
-    } catch (e) {}
-  });
-})();
-`,
-  toFindings: (events: ProbeEvent[], _ctx: RuleContext) => {
-    const hits = events.filter((e) => e.type === 'storage');
-    if (hits.length === 0) return [];
-    return [
-      {
-        ruleId: 'disallowed-html5',
-        category: 'policy',
-        severity: 'error',
-        messageZh: '运行时检测到 localStorage/sessionStorage 调用。',
-        keywordEn: 'Unsupported HTML5 feature',
-        evidence: {
-          runtime: true,
-          snippet: hits
-            .slice(0, 5)
-            .map((h) => `${h.detail.api}.${h.detail.method}`)
-            .join(', '),
-        },
-      } satisfies Finding,
-    ];
-  },
-};
-
-export const googleProbes: Probe[] = [networkProbe, exitProbe, storageProbe];
+export const googleProbes: Probe[] = [networkProbe, exitProbe];
 
 export function buildProbeScript(probes: Probe[]): string {
   return [PROBE_BOOTSTRAP, ...probes.map((p) => p.script)].join('\n');
+}
+
+/** Compliance probes + console/FPS devtools hooks. */
+export function buildPreviewInjection(probes: Probe[], devtoolsScript: string): string {
+  return [PROBE_BOOTSTRAP, ...probes.map((p) => p.script), devtoolsScript].join('\n');
 }

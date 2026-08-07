@@ -110,35 +110,47 @@ input {
   min-width: 240px;
 }
 
-.layout {
+.waterfall {
   flex: 1;
-  display: grid;
-  grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 1rem;
-  padding: 1rem 1.5rem 1.5rem;
-  max-width: 1400px;
+  padding: 1rem 1.5rem 2rem;
+  max-width: 960px;
   width: 100%;
   margin: 0 auto;
 }
 
-@media (max-width: 960px) {
-  .layout {
-    grid-template-columns: 1fr;
-  }
+.wf-section {
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.95rem 1rem 1.1rem;
+  min-width: 0;
 }
 
-.left,
-.right {
+.section-head {
   display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.section-head h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.preview-pane .section-head {
+  margin-bottom: 0.65rem;
 }
 
 .upload-zone {
   border: 1.5px dashed color-mix(in srgb, var(--accent) 45%, var(--line));
   border-radius: var(--radius);
-  background: var(--bg-panel);
+  background: color-mix(in srgb, var(--bg-elev) 70%, transparent);
   padding: 1.4rem 1rem;
   text-align: center;
   cursor: pointer;
@@ -213,13 +225,13 @@ input {
 }
 
 .report {
-  background: var(--bg-panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 0.85rem;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
   flex: 1;
-  overflow: auto;
-  max-height: calc(100vh - 220px);
+  overflow: visible;
+  max-height: none;
 }
 
 .report.empty {
@@ -401,75 +413,217 @@ input {
 }
 
 .preview-pane {
-  background: var(--bg-panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 0.85rem;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  min-height: 520px;
+  min-height: 0;
+}
+
+.console-panel {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #0b1016;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 180px;
+  max-height: 320px;
+}
+
+.console-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45rem 0.65rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg-elev) 80%, #000);
+}
+
+.console-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.console-count {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.console-body {
+  flex: 1;
+  overflow: auto;
+  padding: 0.35rem 0.5rem 0.55rem;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.console-empty {
+  color: var(--muted);
+  padding: 0.75rem 0.25rem;
+}
+
+.console-line {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 0.45rem;
+  padding: 0.18rem 0.2rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+  word-break: break-word;
+}
+
+.console-time {
+  color: #6b7c90;
+  white-space: nowrap;
+}
+
+.console-level {
+  text-transform: uppercase;
+  font-weight: 700;
+  font-size: 0.68rem;
+  min-width: 3.2rem;
+}
+
+.console-msg {
+  color: #d7e0ea;
+  white-space: pre-wrap;
+}
+
+.console-line.level-log .console-level,
+.console-line.level-info .console-level,
+.console-line.level-debug .console-level {
+  color: #8b9bb0;
+}
+.console-line.level-warn .console-level {
+  color: var(--warn);
+}
+.console-line.level-error .console-level {
+  color: var(--err);
+}
+.console-line.level-warn .console-msg {
+  color: #f0d9a0;
+}
+.console-line.level-error .console-msg {
+  color: #ffb4b8;
 }
 
 .preview-toolbar {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: 0.65rem;
+  align-items: flex-end;
 }
 
-.seg {
-  display: inline-flex;
+.preview-selects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.preview-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.preview-field select {
+  background: var(--bg-elev);
+  color: var(--text);
   border: 1px solid var(--line);
   border-radius: 8px;
-  overflow: hidden;
+  padding: 0.4rem 0.55rem;
+  min-width: 200px;
+  max-width: 280px;
 }
 
-.seg button {
-  border: none;
-  background: transparent;
+.perf-hint {
+  margin: 0;
+  font-size: 0.75rem;
   color: var(--muted);
-  padding: 0.35rem 0.65rem;
-  cursor: pointer;
-  font-size: 0.82rem;
+  line-height: 1.4;
 }
 
-.seg button.on {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
-  color: var(--text);
+.perf-hint strong {
+  color: var(--warn);
+  font-weight: 600;
 }
 
-.preview-actions {
+.device-stage {
+  overflow: visible;
+  max-height: none;
+  padding: 0.35rem 0.15rem 0.25rem;
   display: flex;
-  gap: 0.4rem;
-  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.preview-iframe.electron-host {
+  background: transparent;
 }
 
 .device-frame {
   position: relative;
-  margin: 0 auto;
+  /* 用整数像素尺寸，避免亚像素导致发糊 */
+  width: var(--frame-w, 496px);
+  height: var(--frame-h, 744px);
   background: #0a0e13;
-  border-radius: 16px;
+  border-radius: 18px;
   border: 1px solid var(--line);
   overflow: hidden;
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+  flex: 0 0 auto;
 }
 
-.device-frame.portrait {
-  width: min(100%, 320px);
-  height: 480px;
+.fps-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 5;
+  pointer-events: none;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.35rem 0.55rem;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #fff;
+  line-height: 1.35;
 }
 
-.device-frame.landscape {
-  width: min(100%, 480px);
-  height: 320px;
+.fps-mem {
+  font-weight: 500;
+  font-size: 0.7rem;
+  opacity: 0.9;
+}
+
+.fps-badge.fps-good {
+  color: var(--ok);
+}
+.fps-badge.fps-mid {
+  color: var(--warn);
+}
+.fps-badge.fps-bad {
+  color: var(--err);
 }
 
 .preview-iframe {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   border: 0;
   background: #fff;
+  /* 禁止 scale 拉伸，按设备框像素 1:1 绘制，避免发糊 */
+  transform: none;
 }
 
 .preview-placeholder,

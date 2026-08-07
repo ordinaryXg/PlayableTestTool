@@ -183,8 +183,9 @@ export const policyRules: Rule[] = [
           findings.push({
             ruleId: 'disallowed-html5',
             category: 'policy',
-            severity: 'error',
-            messageZh: '不允许使用 localStorage / sessionStorage。',
+            severity: 'warning',
+            messageZh:
+              '源码中出现 localStorage/sessionStorage。Google HTML5 广告文档写明不支持本地存储；官方校验器未必报错，但投放侧仍可能出问题。',
             keywordEn: 'Unsupported HTML5 feature',
             evidence: { path },
           });
@@ -210,9 +211,15 @@ export const policyRules: Rule[] = [
     runStatic: (ctx) => {
       const findings: Finding[] = [];
       const seen = new Set<string>();
+      // 只检查 HTML/CSS 声明式引用。Playable 常把资源内联进 JS（base64 / 虚拟 FS），
+      // JS 字符串里的路径不等于 ZIP 内真实文件，不能当缺失资源报错。
+      const declarative = new Set(['script', 'link', 'img', 'css-url', 'iframe', 'other']);
       for (const ref of ctx.refs) {
         if (ref.isExternal) continue;
         if (!ref.resolved) continue;
+        if (!declarative.has(ref.kind)) continue;
+        // 扩展名片段（如 .png）不是有效资源路径
+        if (/^\.\w{1,10}$/i.test(ref.resolved)) continue;
         if (ctx.vfs.has(ref.resolved)) continue;
         const key = `${ref.fromPath}|${ref.resolved}`;
         if (seen.has(key)) continue;

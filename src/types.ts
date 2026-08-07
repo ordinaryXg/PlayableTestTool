@@ -68,7 +68,7 @@ export interface Rule {
   runStatic?: (ctx: RuleContext) => Finding[];
 }
 
-export type ProbeEventType = 'network' | 'exit' | 'storage' | 'navigation';
+export type ProbeEventType = 'network' | 'exit' | 'storage' | 'navigation' | 'console' | 'fps';
 
 export interface ProbeEvent {
   type: ProbeEventType;

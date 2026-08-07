@@ -47,6 +47,12 @@ describe('vfs resolve', () => {
     expect(resolveVfsPath('assets/app.js', '../img/a.png')).toBe('img/a.png');
     expect(resolveVfsPath('index.html', './main.js')).toBe('main.js');
   });
+
+  it('decodes percent-encoding and strips query', () => {
+    expect(resolveVfsPath('index.html', 'assets/%E5%9B%BE.png?v=2')).toBe(
+      'assets/图.png',
+    );
+  });
 });
 
 describe('parser', () => {
@@ -127,6 +133,69 @@ describe('policy and tooling', () => {
       .find((r) => r.id === 'missing-assets')!
       .runStatic!(ctx);
     expect(findings[0]?.ruleId).toBe('missing-assets');
+  });
+
+  it('accepts percent-encoded asset paths that exist in the zip', () => {
+    const fileName = '图标.png';
+    const encoded = encodeURIComponent(fileName);
+    const html = VALID_HTML.replace(
+      '</body>',
+      `<img src="assets/${encoded}?v=1"></body>`,
+    );
+    const ctx = ctxFromFiles({
+      'index.html': html,
+      [`assets/${fileName}`]: 'png',
+    });
+    const findings = googleAppPlayableMarket.rules
+      .find((r) => r.id === 'missing-assets')!
+      .runStatic!(ctx);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('ignores inlined JS virtual paths that are not real zip files', () => {
+    const html = VALID_HTML.replace(
+      '</body>',
+      `<script>
+        var bundle = { "assets/hero.png": "data:image/png;base64,aaa" };
+        var path = "assets/hero.png";
+      </script></body>`,
+    );
+    const ctx = ctxFromFiles({ 'index.html': html });
+    const findings = googleAppPlayableMarket.rules
+      .find((r) => r.id === 'missing-assets')!
+      .runStatic!(ctx);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('ignores fake img tags and .png fragments inside inline script', () => {
+    const html = VALID_HTML.replace(
+      '</body>',
+      `<script>
+        var mime = "image/png";
+        var htmlSnippet = '<img src=".png">';
+        var also = '<img src="virtual/hero.png">';
+      </script></body>`,
+    );
+    const ctx = ctxFromFiles({ 'index.html': html });
+    const findings = googleAppPlayableMarket.rules
+      .find((r) => r.id === 'missing-assets')!
+      .runStatic!(ctx);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('accepts nested folder refs with ./ and query string', () => {
+    const html = VALID_HTML.replace(
+      '</head>',
+      '<script src="./js/main.js?hash=abc"></script></head>',
+    );
+    const ctx = ctxFromFiles({
+      'index.html': html,
+      'js/main.js': 'ExitApi.exit();',
+    });
+    const findings = googleAppPlayableMarket.rules
+      .find((r) => r.id === 'missing-assets')!
+      .runStatic!(ctx);
+    expect(findings).toHaveLength(0);
   });
 
   it('flags Studio Enabler on non-GWD', () => {
