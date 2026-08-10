@@ -163,7 +163,57 @@ export function buildProbeScript(probes: Probe[]): string {
   return [PROBE_BOOTSTRAP, ...probes.map((p) => p.script)].join('\n');
 }
 
-/** Compliance probes + console/FPS devtools hooks. */
-export function buildPreviewInjection(probes: Probe[], devtoolsScript: string): string {
-  return [PROBE_BOOTSTRAP, ...probes.map((p) => p.script), devtoolsScript].join('\n');
+/** Compliance probes + console/FPS hooks + channel / language env. */
+export function buildPreviewInjection(
+  probes: Probe[],
+  devtoolsScript: string,
+  options?: { channel?: string; language?: string; locale?: string },
+): string {
+  const channel = options?.channel ?? '';
+  const language = options?.language ?? '';
+  const locale = options?.locale || 'en-US';
+  const envBoot = `(function(){
+  try {
+    var ch = ${JSON.stringify(channel)};
+    var lang = ${JSON.stringify(language)};
+    var locale = ${JSON.stringify(locale)};
+    var langs = Object.freeze([locale, String(locale).split('-')[0]]);
+    if (ch) {
+      try { window.curChannel = ch; } catch (e) {}
+      try { globalThis.curChannel = ch; } catch (e) {}
+    }
+    if (lang) {
+      try { window.curLanguage = lang; } catch (e) {}
+      try { globalThis.curLanguage = lang; } catch (e) {}
+    }
+    // Creatives often read navigator.language (not window.curLanguage).
+    function installNavLang() {
+      try {
+        Object.defineProperty(Navigator.prototype, 'language', {
+          configurable: true,
+          get: function () { return locale; },
+        });
+        Object.defineProperty(Navigator.prototype, 'languages', {
+          configurable: true,
+          get: function () { return langs; },
+        });
+        return;
+      } catch (e) {}
+      try {
+        Object.defineProperty(navigator, 'language', {
+          configurable: true,
+          get: function () { return locale; },
+        });
+        Object.defineProperty(navigator, 'languages', {
+          configurable: true,
+          get: function () { return langs; },
+        });
+      } catch (e2) {}
+    }
+    installNavLang();
+  } catch (e) {}
+})();`;
+  return [envBoot, PROBE_BOOTSTRAP, ...probes.map((p) => p.script), devtoolsScript]
+    .filter(Boolean)
+    .join('\n');
 }

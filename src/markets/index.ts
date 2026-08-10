@@ -1,20 +1,33 @@
 import type { MarketModule } from '../types';
 import { googleAppPlayableMarket } from './google-app-playable';
+import { applovinPlayableMarket } from './applovin-playable';
+import { facebookPlayableMarket } from './facebook-playable';
+import { unityPlayableMarket } from './unity-playable';
+import type { PreviewChannel } from '../preview/channels';
 
-const placeholder = (id: string, labelZh: string): MarketModule => ({
+/** Channel preview only: injects curChannel; no market-specific rules yet. */
+const channelPreviewMarket = (
+  id: string,
+  channel: PreviewChannel,
+): MarketModule => ({
   id,
-  labelZh,
-  enabled: false,
+  labelZh: channel,
+  enabled: true,
+  channel,
+  rulesReady: false,
   limits: googleAppPlayableMarket.limits,
   rules: [],
-  probes: [],
+  probes: googleAppPlayableMarket.probes,
 });
 
 const markets: MarketModule[] = [
-  googleAppPlayableMarket,
-  placeholder('meta-playable', 'Meta Playable（即将支持）'),
-  placeholder('tiktok-playable', 'TikTok Playable（即将支持）'),
-  placeholder('unity-playable', 'Unity Ads Playable（即将支持）'),
+  { ...googleAppPlayableMarket, channel: 'Google', labelZh: 'Google', rulesReady: true },
+  { ...applovinPlayableMarket, channel: 'AppLovin', labelZh: 'AppLovin', rulesReady: true },
+  { ...facebookPlayableMarket, labelZh: 'Facebook', rulesReady: true },
+  { ...unityPlayableMarket, labelZh: 'Unity', rulesReady: true },
+  channelPreviewMarket('moloco-playable', 'Moloco'),
+  channelPreviewMarket('liftoff-playable', 'Liftoff'),
+  channelPreviewMarket('mintegral-playable', 'Mintegral'),
 ];
 
 export function listMarkets(): MarketModule[] {
@@ -22,7 +35,22 @@ export function listMarkets(): MarketModule[] {
 }
 
 export function getMarket(id: string): MarketModule {
-  return markets.find((m) => m.id === id) ?? googleAppPlayableMarket;
+  return markets.find((m) => m.id === id) ?? markets[0]!;
+}
+
+/** Short name for UI / reports (channel id). */
+export function marketDisplayName(m: MarketModule): string {
+  return m.channel;
+}
+
+/** Dropdown label: channel only; unfinished markets marked. */
+export function marketSelectLabel(m: MarketModule): string {
+  if (m.rulesReady === false) return `${m.channel}（未接入）`;
+  return m.channel;
+}
+
+export function isMarketRulesReady(m: MarketModule): boolean {
+  return m.rulesReady !== false;
 }
 
 export const DEFAULT_MARKET_ID = googleAppPlayableMarket.id;

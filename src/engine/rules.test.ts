@@ -258,3 +258,204 @@ describe('mergeFindings', () => {
     expect(merged.some((f) => f.severity === 'warning')).toBe(true);
   });
 });
+
+describe('AppLovin playable rules', () => {
+  it('requires single self-contained HTML and flags external refs', async () => {
+    const { applovinPlayableMarket } = await import('../markets/applovin-playable');
+    const files = {
+      'index.html': `<!DOCTYPE html><html><head></head><body>
+        <script src="https://cdn.example.com/game.js"></script>
+        <img src="https://cdn.example.com/a.png">
+      </body></html>`,
+      'extra.js': 'console.log(1)',
+    };
+    const entries = Object.entries(files).map(([path, text]) => ({
+      path,
+      bytes: new TextEncoder().encode(text),
+    }));
+    const vfs = createVfs(entries);
+    const entryHtmlPath = findEntryHtml(vfs);
+    const ctx: RuleContext = {
+      vfs,
+      entryHtmlPath,
+      bundle: {
+        fileName: 'game.zip',
+        byteLength: 100,
+        fileCount: 2,
+        sourceKind: 'zip',
+      },
+      market: applovinPlayableMarket,
+      refs: collectReferences(vfs, entryHtmlPath),
+      adMeta: parseAdMeta(vfs.readText(entryHtmlPath!) || ''),
+    };
+    const single = applovinPlayableMarket.rules.find((r) => r.id === 'al-single-html')!.runStatic!(ctx);
+    expect(single.some((f) => f.severity === 'error')).toBe(true);
+    const external = applovinPlayableMarket.rules.find((r) => r.id === 'al-no-external')!.runStatic!(ctx);
+    expect(external.length).toBeGreaterThan(0);
+  });
+
+  it('flags hard redirect without mraid.open', async () => {
+    const { applovinPlayableMarket } = await import('../markets/applovin-playable');
+    const html = `<!DOCTYPE html><html><body>
+      <button onclick="window.open('https://apps.apple.com/app/1')">Go</button>
+    </body></html>`;
+    const vfs = createVfs([{ path: 'index.html', bytes: new TextEncoder().encode(html) }]);
+    const ctx: RuleContext = {
+      vfs,
+      entryHtmlPath: 'index.html',
+      bundle: { fileName: 'a.html', byteLength: html.length, fileCount: 1, sourceKind: 'html' },
+      market: applovinPlayableMarket,
+      refs: collectReferences(vfs, 'index.html'),
+      adMeta: parseAdMeta(html),
+    };
+    const mraid = applovinPlayableMarket.rules.find((r) => r.id === 'al-mraid')!.runStatic!(ctx);
+    expect(mraid.some((f) => f.severity === 'error' && f.keywordEn.includes('mraid.open'))).toBe(
+      true,
+    );
+  });
+});
+
+describe('Unity playable rules', () => {
+  it('requires single HTML, mraid.open, viewableChange, and flags external refs', async () => {
+    const { unityPlayableMarket } = await import('../markets/unity-playable');
+    const files = {
+      'index.html': `<!DOCTYPE html><html><head></head><body>
+        <script src="https://cdn.example.com/game.js"></script>
+        <button onclick="window.open('https://apps.apple.com/app/1')">Go</button>
+      </body></html>`,
+      'extra.js': 'console.log(1)',
+    };
+    const entries = Object.entries(files).map(([path, text]) => ({
+      path,
+      bytes: new TextEncoder().encode(text),
+    }));
+    const vfs = createVfs(entries);
+    const entryHtmlPath = findEntryHtml(vfs);
+    const ctx: RuleContext = {
+      vfs,
+      entryHtmlPath,
+      bundle: {
+        fileName: 'game.zip',
+        byteLength: 100,
+        fileCount: 2,
+        sourceKind: 'zip',
+      },
+      market: unityPlayableMarket,
+      refs: collectReferences(vfs, entryHtmlPath),
+      adMeta: parseAdMeta(vfs.readText(entryHtmlPath!) || ''),
+    };
+    const single = unityPlayableMarket.rules.find((r) => r.id === 'un-single-html')!.runStatic!(ctx);
+    expect(single.some((f) => f.severity === 'error')).toBe(true);
+    const external = unityPlayableMarket.rules.find((r) => r.id === 'un-no-external')!.runStatic!(ctx);
+    expect(external.length).toBeGreaterThan(0);
+    const mraid = unityPlayableMarket.rules.find((r) => r.id === 'un-mraid')!.runStatic!(ctx);
+    expect(mraid.some((f) => f.messageZh.includes('mraid.open'))).toBe(true);
+    expect(mraid.some((f) => f.messageZh.includes('viewableChange'))).toBe(true);
+  });
+
+  it('accepts valid Unity playable with mraid.open and viewableChange', async () => {
+    const { unityPlayableMarket } = await import('../markets/unity-playable');
+    const html = `<!DOCTYPE html><html><body>
+      <script>
+        mraid.addEventListener('viewableChange', function(v){ if(v) start(); });
+        function start(){}
+        function cta(){ mraid.open('https://apps.apple.com/app/1'); }
+      </script>
+      <button onclick="cta()">Install</button>
+    </body></html>`;
+    const vfs = createVfs([{ path: 'index.html', bytes: new TextEncoder().encode(html) }]);
+    const ctx: RuleContext = {
+      vfs,
+      entryHtmlPath: 'index.html',
+      bundle: { fileName: 'index.html', byteLength: html.length, fileCount: 1, sourceKind: 'html' },
+      market: unityPlayableMarket,
+      refs: collectReferences(vfs, 'index.html'),
+      adMeta: parseAdMeta(html),
+    };
+    const mraid = unityPlayableMarket.rules.find((r) => r.id === 'un-mraid')!.runStatic!(ctx);
+    expect(mraid.filter((f) => f.severity === 'error')).toHaveLength(0);
+    const external = unityPlayableMarket.rules.find((r) => r.id === 'un-no-external')!.runStatic!(ctx);
+    expect(external).toHaveLength(0);
+  });
+});
+
+describe('Facebook playable rules', () => {
+  it('requires FbPlayableAd.onCTAClick and flags external refs', async () => {
+    const { facebookPlayableMarket } = await import('../markets/facebook-playable');
+    const html = `<!DOCTYPE html><html><body>
+      <script src="https://cdn.example.com/x.js"></script>
+      <button onclick="window.open('https://apps.apple.com/app/1')">Go</button>
+    </body></html>`;
+    const vfs = createVfs([{ path: 'index.html', bytes: new TextEncoder().encode(html) }]);
+    const ctx: RuleContext = {
+      vfs,
+      entryHtmlPath: 'index.html',
+      bundle: { fileName: 'a.html', byteLength: html.length, fileCount: 1, sourceKind: 'html' },
+      market: facebookPlayableMarket,
+      refs: collectReferences(vfs, 'index.html'),
+      adMeta: parseAdMeta(html),
+    };
+    const cta = facebookPlayableMarket.rules.find((r) => r.id === 'fb-cta')!.runStatic!(ctx);
+    expect(cta.some((f) => f.severity === 'error')).toBe(true);
+    const external = facebookPlayableMarket.rules.find((r) => r.id === 'fb-no-external')!.runStatic!(
+      ctx,
+    );
+    expect(external.length).toBeGreaterThan(0);
+    const redirect = facebookPlayableMarket.rules.find((r) => r.id === 'fb-no-redirect')!.runStatic!(
+      ctx,
+    );
+    expect(redirect.some((f) => f.severity === 'error')).toBe(true);
+  });
+
+  it('accepts valid HTML with FbPlayableAd.onCTAClick', async () => {
+    const { facebookPlayableMarket } = await import('../markets/facebook-playable');
+    const html = `<!DOCTYPE html><html><body>
+      <button onclick="FbPlayableAd.onCTAClick()">Install</button>
+    </body></html>`;
+    const vfs = createVfs([{ path: 'index.html', bytes: new TextEncoder().encode(html) }]);
+    const ctx: RuleContext = {
+      vfs,
+      entryHtmlPath: 'index.html',
+      bundle: { fileName: 'ok.html', byteLength: html.length, fileCount: 1, sourceKind: 'html' },
+      market: facebookPlayableMarket,
+      refs: collectReferences(vfs, 'index.html'),
+      adMeta: parseAdMeta(html),
+    };
+    const cta = facebookPlayableMarket.rules.find((r) => r.id === 'fb-cta')!.runStatic!(ctx);
+    expect(cta).toHaveLength(0);
+    const redirect = facebookPlayableMarket.rules.find((r) => r.id === 'fb-no-redirect')!.runStatic!(
+      ctx,
+    );
+    expect(redirect).toHaveLength(0);
+  });
+
+  it('requires root index.html in ZIP and enforces file count', async () => {
+    const { facebookPlayableMarket } = await import('../markets/facebook-playable');
+    const files = {
+      'game/index.html': `<!DOCTYPE html><html><body>
+        <button onclick="FbPlayableAd.onCTAClick()">Go</button>
+      </body></html>`,
+    };
+    const entries = Object.entries(files).map(([path, text]) => ({
+      path,
+      bytes: new TextEncoder().encode(text),
+    }));
+    const vfs = createVfs(entries);
+    const entryHtmlPath = findEntryHtml(vfs);
+    const ctx: RuleContext = {
+      vfs,
+      entryHtmlPath,
+      bundle: {
+        fileName: 'game.zip',
+        byteLength: 100,
+        fileCount: 1,
+        sourceKind: 'zip',
+      },
+      market: facebookPlayableMarket,
+      refs: collectReferences(vfs, entryHtmlPath),
+      adMeta: parseAdMeta(vfs.readText(entryHtmlPath!) || ''),
+    };
+    const format = facebookPlayableMarket.rules.find((r) => r.id === 'fb-format')!.runStatic!(ctx);
+    expect(format.some((f) => f.messageZh.includes('根目录'))).toBe(true);
+  });
+});

@@ -8,6 +8,7 @@ export const googleAppPlayableMarket: MarketModule = {
   id: 'google-app-playable',
   labelZh: 'Google App Campaigns / Playable',
   enabled: true,
+  channel: 'Google',
   limits: GOOGLE_APP_PLAYABLE_LIMITS,
   rules: [...allStructureAndSizeRules(), ...allPolicyAndToolingRules()],
   probes: googleProbes,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { Finding, ProbeEvent, RuleContext, ValidationReport, Vfs } from './types';
 import { loadBundle } from './vfs';
 import { buildRuleExtras, findEntryHtml } from './parser';
@@ -8,15 +8,12 @@ import {
   runProbesToFindings,
   runStatic,
 } from './engine';
-import { DEFAULT_MARKET_ID, getMarket } from './markets';
+import { DEFAULT_MARKET_ID, getMarket, marketDisplayName, isMarketRulesReady } from './markets';
 import { buildPreviewInjection } from './markets/google-app-playable/probes';
-import { buildPreview, type PreviewHandle } from './preview/buildPreview';
-import { listenProbeEvents } from './preview/bridge';
 import { buildDevtoolsScript, type ConsoleLine, type FpsStats } from './preview/devtools';
 import {
   base64ToFile,
   getDesktopApi,
-  isElectronDesktop,
   vfsToBase64Map,
   type DesktopPreset,
   type DesktopPresetListItem,
@@ -26,6 +23,12 @@ import { ReportPanel } from './ui/ReportPanel';
 import { PreviewPane } from './ui/PreviewPane';
 import { ConsolePanel } from './ui/ConsolePanel';
 import { MarketSelect } from './ui/MarketSelect';
+import { LanguageSelect } from './ui/LanguageSelect';
+import {
+  DEFAULT_PREVIEW_LANGUAGE,
+  previewLanguageToLocale,
+  type PreviewLanguageId,
+} from './preview/languages';
 import './styles.css';
 
 const PROBE_WINDOW_MS = 4000;
@@ -33,8 +36,11 @@ const MAX_CONSOLE_LINES = 500;
 const ELECTRON_PREVIEW_TOKEN = 'electron://preview';
 
 export default function App() {
-  const desktop = isElectronDesktop();
+  const api = getDesktopApi();
   const [marketId, setMarketId] = useState(DEFAULT_MARKET_ID);
+  const [previewLanguage, setPreviewLanguage] = useState<PreviewLanguageId>(
+    DEFAULT_PREVIEW_LANGUAGE,
+  );
   const [report, setReport] = useState<ValidationReport | null>(null);
   const [selected, setSelected] = useState<Finding | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -47,20 +53,33 @@ export default function App() {
   const [desktopPresets, setDesktopPresets] = useState<DesktopPresetListItem[]>([]);
   const [rightTab, setRightTab] = useState<'preview' | 'console'>('preview');
   const [consoleUnread, setConsoleUnread] = useState(false);
+  const [leftPct, setLeftPct] = useState(() => {
+    try {
+      const raw = localStorage.getItem('pv-left-pct');
+      const n = raw ? Number(raw) : 42;
+      return Number.isFinite(n) ? Math.min(70, Math.max(22, n)) : 42;
+    } catch {
+      return 42;
+    }
+  });
   const rightTabRef = useRef(rightTab);
+  const splitDragRef = useRef<{ startX: number; startPct: number } | null>(null);
+  const leftPctRef = useRef(leftPct);
   useEffect(() => {
     rightTabRef.current = rightTab;
   }, [rightTab]);
+  useEffect(() => {
+    leftPctRef.current = leftPct;
+  }, [leftPct]);
 
   const vfsRef = useRef<Vfs | null>(null);
   const entryRef = useRef<string | null>(null);
   const ctxRef = useRef<RuleContext | null>(null);
   const staticFindingsRef = useRef<Finding[]>([]);
-  const previewHandleRef = useRef<PreviewHandle | null>(null);
   const probeEventsRef = useRef<ProbeEvent[]>([]);
   const probeTimerRef = useRef<number | null>(null);
   const consoleIdRef = useRef(0);
-  const metricsRef = useRef({ width: 320, height: 480, dpr: 2 });
+  const metricsRef = useRef({ width: 320, height: 480, dpr: 2, pageScale: 1 });
 
   const market = getMarket(marketId);
 
@@ -82,13 +101,10 @@ export default function App() {
   }, []);
 
   const revokePreview = useCallback(() => {
-    previewHandleRef.current?.revoke();
-    previewHandleRef.current = null;
     setPreviewUrl(null);
     setFpsStats(null);
-    const api = getDesktopApi();
     if (api) void api.hidePreview();
-  }, []);
+  }, [api]);
 
   const clearConsole = useCallback(() => {
     setConsoleLines([]);
@@ -114,29 +130,6 @@ export default function App() {
   }, [applyMerged]);
 
   useEffect(() => {
-    if (!desktop) {
-      return listenProbeEvents((ev) => {
-        if (ev.type === 'console') {
-          pushConsole(String(ev.detail.level || 'log'), String(ev.detail.message || ''), ev.at);
-          return;
-        }
-        if (ev.type === 'fps') {
-          const value = Number(ev.detail.fps);
-          if (!Number.isFinite(value)) return;
-          setFpsStats({
-            fps: value,
-            heapUsedMB:
-              typeof ev.detail.heapUsedMB === 'number' ? ev.detail.heapUsedMB : undefined,
-            heapLimitMB:
-              typeof ev.detail.heapLimitMB === 'number' ? ev.detail.heapLimitMB : undefined,
-          });
-          return;
-        }
-        probeEventsRef.current.push(ev);
-      });
-    }
-
-    const api = getDesktopApi();
     if (!api) return;
     void api.getPreset().then(setDesktopPreset);
     void api.listPresets().then(setDesktopPresets);
@@ -187,7 +180,6 @@ export default function App() {
       });
     });
 
-    // Session restore after relaunch
     void (async () => {
       const restored = await api.loadRestoredBundle();
       if (!restored) return;
@@ -204,44 +196,48 @@ export default function App() {
       offMem();
       offFps();
     };
-  }, [desktop, pushConsole]);
+  }, [api, pushConsole]);
 
   const mountPreview = useCallback(
     async (vfs: Vfs, entry: string) => {
-      revokePreview();
+      if (!api) {
+        setPreviewError('请在 Electron 桌面应用中运行');
+        return;
+      }
+      // Avoid hidePreview() before remount — zeroes WebContentsView and can blank WebGL.
+      setFpsStats(null);
       setPreviewError(null);
       setConsoleLines([]);
-      setFpsStats(null);
       try {
-        const api = getDesktopApi();
-        const probeScript = buildPreviewInjection(market.probes, buildDevtoolsScript());
-        if (api) {
-          const files = await vfsToBase64Map(vfs);
-          const setRes = await api.setPreviewVfs({
-            entryHtmlPath: entry,
-            files,
-            injectScript: probeScript,
-          });
-          if (!setRes.ok) throw new Error(setRes.error || 'VFS 同步失败');
-          const shown = await api.showPreview(metricsRef.current);
-          if (!shown.ok) throw new Error(shown.error || '预览打开失败');
-          setPreviewUrl(ELECTRON_PREVIEW_TOKEN);
-          if (rightTabRef.current !== 'preview') {
-            await api.hidePreview();
-          }
-          startProbeCapture();
-          return;
+        const probeScript = buildPreviewInjection(market.probes, buildDevtoolsScript(), {
+          channel: market.channel,
+          language: previewLanguage,
+          locale: previewLanguageToLocale(previewLanguage),
+        });
+        const files = await vfsToBase64Map(vfs);
+        const setRes = await api.setPreviewVfs({
+          entryHtmlPath: entry,
+          files,
+          injectScript: probeScript,
+          previewEnv: {
+            channel: market.channel,
+            language: previewLanguage,
+            locale: previewLanguageToLocale(previewLanguage),
+          },
+        });
+        if (!setRes.ok) throw new Error(setRes.error || 'VFS 同步失败');
+        const shown = await api.showPreview(metricsRef.current);
+        if (!shown.ok) throw new Error(shown.error || '预览打开失败');
+        setPreviewUrl(ELECTRON_PREVIEW_TOKEN);
+        if (rightTabRef.current !== 'preview') {
+          await api.hidePreview();
         }
-
-        const handle = await buildPreview(vfs, entry, probeScript);
-        previewHandleRef.current = handle;
-        setPreviewUrl(handle.url);
         startProbeCapture();
       } catch (err) {
         setPreviewError(err instanceof Error ? err.message : String(err));
       }
     },
-    [market.probes, revokePreview, startProbeCapture],
+    [api, market.probes, market.channel, previewLanguage, startProbeCapture],
   );
 
   const runValidation = useCallback(
@@ -252,7 +248,6 @@ export default function App() {
       setPreviewError(null);
       setConsoleLines([]);
 
-      const api = getDesktopApi();
       if (api) {
         try {
           const buf = new Uint8Array(await file.arrayBuffer());
@@ -286,7 +281,7 @@ export default function App() {
       const staticFindings = [...loaded.findings, ...runStatic(ctx)];
       staticFindingsRef.current = staticFindings;
       setReport(buildReport(staticFindings, ctx));
-      setStatus(desktop ? '静态检测完成（Electron 预览）' : '静态检测完成');
+      setStatus('静态检测完成');
 
       const hasZipError = loaded.findings.some((f) => f.ruleId === 'zip-format' && f.severity === 'error');
       if (!hasZipError && entry) {
@@ -295,13 +290,59 @@ export default function App() {
         setPreviewError('未找到可预览的主 HTML');
       }
     },
-    [desktop, market, mountPreview, revokePreview],
+    [api, market, mountPreview, revokePreview],
   );
 
   const runValidationRef = useRef(runValidation);
   useEffect(() => {
     runValidationRef.current = runValidation;
   }, [runValidation]);
+
+  // Re-run static rules when market changes (keep current VFS / preview).
+  useEffect(() => {
+    const vfs = vfsRef.current;
+    const entry = entryRef.current;
+    if (!vfs || !ctxRef.current) return;
+    const extras = buildRuleExtras(vfs, entry);
+    const ctx: RuleContext = {
+      vfs,
+      entryHtmlPath: entry,
+      bundle: ctxRef.current.bundle,
+      market,
+      refs: extras.refs,
+      adMeta: extras.adMeta,
+    };
+    ctxRef.current = ctx;
+    const priorLoad = staticFindingsRef.current.filter((f) => f.ruleId === 'zip-format');
+    const staticFindings = [...priorLoad, ...runStatic(ctx)];
+    staticFindingsRef.current = staticFindings;
+    setReport(buildReport(staticFindings, ctx));
+    setStatus(
+      isMarketRulesReady(market)
+        ? `已切换市场：${marketDisplayName(market)}（curChannel="${market.channel}"）`
+        : `已切换市场：${marketDisplayName(market)}（未接入规则，仅注入 curChannel="${market.channel}"）`,
+    );
+    if (entry) void mountPreview(vfs, entry);
+    // intentionally only when market module changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marketId]);
+
+  // Re-inject window.curLanguage and reload preview when language changes.
+  const languageBootRef = useRef(true);
+  useEffect(() => {
+    if (languageBootRef.current) {
+      languageBootRef.current = false;
+      return;
+    }
+    const vfs = vfsRef.current;
+    const entry = entryRef.current;
+    if (!vfs || !entry || !ctxRef.current) return;
+    setStatus(
+      `已切换预览语言：navigator.language = "${previewLanguageToLocale(previewLanguage)}"（curLanguage=${previewLanguage}）`,
+    );
+    void mountPreview(vfs, entry);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewLanguage]);
 
   useEffect(() => {
     return () => {
@@ -318,36 +359,66 @@ export default function App() {
 
   const onRecapture = () => {
     startProbeCapture();
-    const api = getDesktopApi();
     if (api && previewUrl === ELECTRON_PREVIEW_TOKEN) {
       void api.reloadPreview(metricsRef.current);
-      return;
-    }
-    if (previewUrl && previewHandleRef.current) {
-      setPreviewUrl(null);
-      requestAnimationFrame(() => setPreviewUrl(previewHandleRef.current?.url ?? null));
     }
   };
 
   const onPresetChange = async (id: string) => {
-    const api = getDesktopApi();
     if (!api) return;
-    pushConsole('info', `正在切换设备档位为 ${id}，应用将重启…`);
-    await api.setPreset(id);
-  };
-
-  const onMetricsChange = (metrics: { width: number; height: number; dpr: number }) => {
-    metricsRef.current = metrics;
-    const api = getDesktopApi();
-    if (api && previewUrl === ELECTRON_PREVIEW_TOKEN) {
-      void api.applyPreviewMetrics(metrics);
+    pushConsole('info', `正在热切换设备档位为 ${id}（CPU/网络立即生效）…`);
+    const res = await api.setPreset(id);
+    const next = await api.getPreset();
+    setDesktopPreset(next);
+    if (res.processLimitsPending) {
+      pushConsole(
+        'warn',
+        '当前进程的 V8 堆上限 / SwiftShader 仍为启动时配置；完整对齐需点击「重启以应用堆/软渲染」。',
+      );
+    } else {
+      pushConsole('info', `设备档位已切换为 ${next.label}`);
+    }
+    if (previewUrl === ELECTRON_PREVIEW_TOKEN) {
+      void api.applyPreviewMetrics(metricsRef.current);
     }
   };
 
-  const onPreviewBounds = (bounds: { x: number; y: number; width: number; height: number }) => {
+  const onRelaunchForPreset = async () => {
     const api = getDesktopApi();
-    if (api) void api.updatePreviewBounds(bounds);
+    if (!api || !desktopPreset) return;
+    pushConsole('info', '正在重启以应用 V8 堆 / SwiftShader…');
+    await api.relaunchForPreset(desktopPreset.id);
   };
+
+  const onMetricsChange = useCallback(
+    (metrics: { width: number; height: number; dpr: number; pageScale?: number }) => {
+      metricsRef.current = {
+        width: metrics.width,
+        height: metrics.height,
+        dpr: metrics.dpr,
+        pageScale: metrics.pageScale ?? 1,
+      };
+      const api = getDesktopApi();
+      if (api && previewUrl === ELECTRON_PREVIEW_TOKEN) {
+        void api.applyPreviewMetrics(metricsRef.current);
+      }
+    },
+    [previewUrl],
+  );
+
+  const onPreviewBounds = useCallback(
+    (bounds: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      pageScale?: number;
+    }) => {
+      const api = getDesktopApi();
+      if (api) void api.updatePreviewBounds(bounds);
+    },
+    [],
+  );
 
   const selectRightTab = (tab: 'preview' | 'console') => {
     setRightTab(tab);
@@ -367,28 +438,54 @@ export default function App() {
     }
   };
 
+  const onSplitPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    splitDragRef.current = { startX: e.clientX, startPct: leftPctRef.current };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    document.body.classList.add('is-splitting');
+  };
+
+  const onSplitPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = splitDragRef.current;
+    if (!drag) return;
+    const root = e.currentTarget.parentElement;
+    const width = root?.getBoundingClientRect().width || window.innerWidth;
+    if (width < 1) return;
+    const deltaPct = ((e.clientX - drag.startX) / width) * 100;
+    const next = Math.min(70, Math.max(22, drag.startPct + deltaPct));
+    setLeftPct(next);
+  };
+
+  const endSplitDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!splitDragRef.current) return;
+    splitDragRef.current = null;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+    document.body.classList.remove('is-splitting');
+    try {
+      localStorage.setItem('pv-left-pct', String(Math.round(leftPctRef.current * 10) / 10));
+    } catch {
+      /* ignore */
+    }
+  };
+
   return (
     <div className="app">
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark">PV</span>
-          <div>
-            <h1>Playable 合规检测器</h1>
-            <p>
-              {desktop
-                ? `Electron 桌面版 · 档位 ${desktopPreset?.label ?? '…'}`
-                : '本地检测 · 文件不离开浏览器'}
-            </p>
-          </div>
-        </div>
-        <MarketSelect value={marketId} onChange={setMarketId} />
-      </header>
-
-      <main className="workspace">
+      <main
+        className="workspace"
+        style={{ gridTemplateColumns: `minmax(240px, ${leftPct}%) 6px minmax(320px, 1fr)` }}
+      >
         <section className="pane pane-left">
           <div className="pane-block pane-upload">
             <div className="section-head">
               <h2>上传素材</h2>
+            </div>
+            <div className="preview-env-selects">
+              <MarketSelect value={marketId} onChange={setMarketId} />
+              <LanguageSelect value={previewLanguage} onChange={setPreviewLanguage} />
             </div>
             <UploadZone compact onFile={(f) => void runValidation(f)} />
             {status && <div className="status">{status}</div>}
@@ -401,13 +498,35 @@ export default function App() {
             <div className="report-scroll">
               <ReportPanel
                 report={report}
-                marketLabel={market.labelZh}
+                marketLabel={marketDisplayName(market)}
                 selected={selected}
                 onSelect={setSelected}
               />
             </div>
           </div>
         </section>
+
+        <div
+          className="workspace-splitter"
+          role="separator"
+          aria-orientation="vertical"
+          aria-valuenow={Math.round(leftPct)}
+          aria-valuemin={22}
+          aria-valuemax={70}
+          aria-label="调整左右栏宽度"
+          tabIndex={0}
+          onPointerDown={onSplitPointerDown}
+          onPointerMove={onSplitPointerMove}
+          onPointerUp={endSplitDrag}
+          onPointerCancel={endSplitDrag}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowLeft') {
+              setLeftPct((p) => Math.max(22, p - 2));
+            } else if (e.key === 'ArrowRight') {
+              setLeftPct((p) => Math.min(70, p + 2));
+            }
+          }}
+        />
 
         <section className="pane pane-right">
           <div className="right-tabs" role="tablist" aria-label="预览与控制台">
@@ -442,7 +561,6 @@ export default function App() {
               busy={probeBusy}
               error={previewError}
               fpsStats={fpsStats}
-              desktop={desktop}
               desktopPreset={desktopPreset}
               desktopPresets={desktopPresets}
               embedded
@@ -450,6 +568,7 @@ export default function App() {
               onRefresh={onRefresh}
               onRecapture={onRecapture}
               onPresetChange={(id) => void onPresetChange(id)}
+              onRelaunchForPreset={() => void onRelaunchForPreset()}
               onMetricsChange={onMetricsChange}
               onPreviewBounds={onPreviewBounds}
             />

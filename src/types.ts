@@ -102,6 +102,17 @@ export interface MarketModule {
   id: string;
   labelZh: string;
   enabled: boolean;
+  /**
+   * Preview injects `window.curChannel = <channel>` before page scripts
+   * so creatives can branch by ad network.
+   */
+  channel: string;
+  /**
+   * When false, the market is selectable for `curChannel` preview only;
+   * market-specific compliance rules are not implemented yet.
+   * Defaults to true when omitted.
+   */
+  rulesReady?: boolean;
   limits: MarketLimits;
   rules: Rule[];
   probes: Probe[];

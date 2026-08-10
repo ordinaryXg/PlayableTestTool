@@ -45,11 +45,9 @@ export function UploadZone({ disabled, compact, onFile }: Props) {
         if (e.key === 'Enter' || e.key === ' ') inputRef.current?.click();
       }}
     >
-      {!compact && (
-        <div className="upload-icon" aria-hidden>
-          ↑
-        </div>
-      )}
+      <div className="upload-icon" aria-hidden>
+        ↑
+      </div>
       <p className="upload-title">{compact ? '拖拽或选择 Playable 文件' : '拖拽 Playable 文件到此处'}</p>
       <p className="upload-sub">支持 .zip / .html{compact ? '' : ' — 或'}</p>
       <button type="button" className={`btn-primary${compact ? ' btn-compact' : ''}`} disabled={disabled}>

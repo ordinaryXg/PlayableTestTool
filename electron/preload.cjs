@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('pvDesktop', {
   getPreset: () => ipcRenderer.invoke('pv:getPreset'),
   listPresets: () => ipcRenderer.invoke('pv:listPresets'),
   setPreset: (presetId) => ipcRenderer.invoke('pv:setPreset', presetId),
+  relaunchForPreset: (presetId) => ipcRenderer.invoke('pv:relaunchForPreset', presetId),
   setPreviewVfs: (payload) => ipcRenderer.invoke('pv:setPreviewVfs', payload),
   showPreview: (metrics) => ipcRenderer.invoke('pv:showPreview', metrics),
   hidePreview: () => ipcRenderer.invoke('pv:hidePreview'),

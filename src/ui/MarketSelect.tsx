@@ -1,5 +1,5 @@
 import type { MarketModule } from '../types';
-import { listMarkets } from '../markets';
+import { listMarkets, marketSelectLabel } from '../markets';
 
 interface Props {
   value: string;
@@ -10,7 +10,7 @@ export function MarketSelect({ value, onChange }: Props) {
   const markets = listMarkets();
   return (
     <label className="market-select">
-      <span>市场规则</span>
+      <span>市场</span>
       <select
         value={value}
         onChange={(e) => {
@@ -20,7 +20,7 @@ export function MarketSelect({ value, onChange }: Props) {
       >
         {markets.map((m) => (
           <option key={m.id} value={m.id} disabled={!m.enabled}>
-            {m.labelZh}
+            {marketSelectLabel(m)}
           </option>
         ))}
       </select>

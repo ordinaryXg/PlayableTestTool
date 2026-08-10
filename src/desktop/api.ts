@@ -7,6 +7,11 @@ export type DesktopPreset = {
   cpu: number;
   metrics?: { width: number; height: number; dpr: number };
   requiresRelaunch?: boolean;
+  bootPresetId?: string;
+  bootHeap?: number;
+  bootSoftGpu?: boolean;
+  /** True when V8 heap / SwiftShader differ from this process boot and need relaunch for full effect. */
+  processLimitsPending?: boolean;
 };
 
 export type DesktopPresetListItem = {
@@ -18,25 +23,49 @@ export type DesktopPresetListItem = {
   cpu: number;
 };
 
-export type PreviewBounds = { x: number; y: number; width: number; height: number };
+export type PreviewBounds = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  pageScale?: number;
+};
 
 export type PvDesktopApi = {
   isDesktop: true;
   getPreset: () => Promise<DesktopPreset>;
   listPresets: () => Promise<DesktopPresetListItem[]>;
-  setPreset: (presetId: string) => Promise<{ ok: boolean; relaunching?: boolean }>;
+  setPreset: (presetId: string) => Promise<{
+    ok: boolean;
+    relaunching?: boolean;
+    applied?: boolean;
+    processLimitsPending?: boolean;
+    bootPresetId?: string;
+  }>;
+  relaunchForPreset: (presetId?: string) => Promise<{ ok: boolean; relaunching?: boolean }>;
   setPreviewVfs: (payload: {
     entryHtmlPath: string;
     files: Record<string, string>; // path -> base64
     injectScript?: string;
+    previewEnv?: { channel?: string; language?: string; locale?: string };
   }) => Promise<{ ok: boolean; error?: string }>;
-  showPreview: (metrics?: { width: number; height: number; dpr: number }) => Promise<{
+  showPreview: (metrics?: {
+    width: number;
+    height: number;
+    dpr: number;
+    pageScale?: number;
+  }) => Promise<{
     ok: boolean;
     error?: string;
   }>;
   hidePreview: () => Promise<{ ok: boolean }>;
   revealPreview: () => Promise<{ ok: boolean; error?: string }>;
-  reloadPreview: (metrics?: { width: number; height: number; dpr: number }) => Promise<{
+  reloadPreview: (metrics?: {
+    width: number;
+    height: number;
+    dpr: number;
+    pageScale?: number;
+  }) => Promise<{
     ok: boolean;
   }>;
   updatePreviewBounds: (bounds: PreviewBounds) => Promise<{ ok: boolean }>;
@@ -44,6 +73,7 @@ export type PvDesktopApi = {
     width: number;
     height: number;
     dpr: number;
+    pageScale?: number;
   }) => Promise<{ ok: boolean }>;
   saveBundleForRestore: (payload: {
     fileName: string;

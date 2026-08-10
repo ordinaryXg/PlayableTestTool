@@ -24,6 +24,7 @@ protocol.registerSchemesAsPrivileged([
       supportFetchAPI: true,
       corsEnabled: true,
       stream: true,
+      bypassCSP: true,
     },
   },
 ]);
@@ -70,10 +71,29 @@ function earlyReadPreset() {
 presetId = earlyReadPreset();
 applyBootSwitches(presetId);
 previewManager.setPresetId(presetId);
+/** Preset id used for process-level switches at boot (heap / SwiftShader). */
+const bootPresetId = presetId;
+
+function bootDiffersFrom(id) {
+  const boot = getPreset(bootPresetId);
+  const next = getPreset(id);
+  return boot.heap !== next.heap || boot.softGpu !== next.softGpu;
+}
 
 /** @type {BrowserWindow | null} */
 let mainWindow = null;
 let memoryTimer = null;
+
+function resolveAppIcon() {
+  const ico = path.join(__dirname, '..', 'build', 'icon.ico');
+  const png = path.join(__dirname, '..', 'build', 'icon.png');
+  try {
+    if (require('node:fs').existsSync(ico)) return ico;
+  } catch {
+    /* ignore */
+  }
+  return png;
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -83,6 +103,7 @@ function createWindow() {
     minHeight: 640,
     title: 'Playable 合规检测器',
     backgroundColor: '#0f1419',
+    icon: resolveAppIcon(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -146,6 +167,7 @@ function registerIpc() {
 
   ipcMain.handle('pv:getPreset', () => {
     const p = getPreset(presetId);
+    const boot = getPreset(bootPresetId);
     return {
       id: p.id,
       label: p.label,
@@ -154,16 +176,35 @@ function registerIpc() {
       softGpu: p.softGpu,
       cpu: p.cpu,
       metrics: p.metrics,
-      requiresRelaunch: true,
+      requiresRelaunch: false,
+      bootPresetId,
+      bootHeap: boot.heap,
+      bootSoftGpu: boot.softGpu,
+      processLimitsPending: bootDiffersFrom(presetId),
     };
   });
 
   ipcMain.handle('pv:listPresets', () => listPresets());
 
-  ipcMain.handle('pv:setPreset', (_e, nextId) => {
+  ipcMain.handle('pv:setPreset', async (_e, nextId) => {
     const p = getPreset(nextId);
+    writeSettings({ presetId: p.id, pendingRestore: false });
+    presetId = p.id;
+    previewManager.setPresetId(p.id);
+    const applied = await previewManager.reapplyPreset();
+    const processLimitsPending = bootDiffersFrom(p.id);
+    return {
+      ok: true,
+      relaunching: false,
+      applied: Boolean(applied && applied.applied),
+      processLimitsPending,
+      bootPresetId,
+    };
+  });
+
+  ipcMain.handle('pv:relaunchForPreset', (_e, nextId) => {
+    const p = getPreset(nextId || presetId);
     writeSettings({ presetId: p.id, pendingRestore: true });
-    // Relaunch with explicit preset arg so boot switches apply
     app.relaunch({
       args: [
         ...process.argv.slice(1).filter((a) => !a.startsWith('--preset=')),
@@ -187,6 +228,9 @@ function registerIpc() {
         }
       }
       setVfs(files, payload.entryHtmlPath, payload.injectScript || null);
+      if (payload.previewEnv && typeof payload.previewEnv === 'object') {
+        previewManager.setPreviewEnv(payload.previewEnv);
+      }
       return { ok: true, entry: payload.entryHtmlPath };
     } catch (err) {
       return { ok: false, error: String(err && err.message ? err.message : err) };

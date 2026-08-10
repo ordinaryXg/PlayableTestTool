@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Playable Validator">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1a3a55"/>
+      <stop offset="55%" stop-color="#171e26"/>
+      <stop offset="100%" stop-color="#0f1419"/>
+    </linearGradient>
+    <linearGradient id="phone" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#2a3544"/>
+      <stop offset="100%" stop-color="#1c2530"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#243049"/>
+      <stop offset="100%" stop-color="#0f1419"/>
+    </linearGradient>
+  </defs>
+  <!-- rounded app tile -->
+  <rect x="28" y="28" width="456" height="456" rx="96" fill="url(#bg)"/>
+  <!-- soft inner glow ring -->
+  <rect x="48" y="48" width="416" height="416" rx="84" fill="none" stroke="#3d9cf0" stroke-opacity="0.18" stroke-width="3"/>
+  <!-- phone body -->
+  <rect x="168" y="96" width="176" height="300" rx="36" fill="url(#phone)" stroke="#3d9cf0" stroke-width="8"/>
+  <!-- screen -->
+  <rect x="184" y="124" width="144" height="228" rx="18" fill="url(#screen)"/>
+  <!-- home indicator -->
+  <rect x="228" y="362" width="56" height="8" rx="4" fill="#3d9cf0" fill-opacity="0.55"/>
+  <!-- validation check -->
+  <path d="M214 236 l28 28 56-64" fill="none" stroke="#3ecf8e" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- play accent -->
+  <path d="M236 400 l42 24 -42 24 z" fill="#3d9cf0"/>
+</svg>

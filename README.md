@@ -1,8 +1,13 @@
 # Playable 合规检测器
 
-本地检测 Playable（HTML5）素材是否符合 **Google App Campaigns / Playable** 规则。文件不会上传到服务器。
+本地 **Electron 桌面应用**，检测 Playable（HTML5）素材是否符合投放市场规则。文件不会上传到服务器。
 
-推荐使用 **Electron 桌面版**：可按设备档位压测（CPU 节流、弱网、V8 堆上限、软渲染）。纯浏览器模式只适合改 UI / 规则，没有真实性能杠杆。
+已启用市场规则：
+
+- **Google** / **AppLovin** / **Facebook** / **Unity**（完整合规规则）
+- **Moloco** / **Liftoff** / **Mintegral**（仅预览 `curChannel`，规则未接入）
+
+本工具**仅提供桌面应用**，不提供浏览器网页版。
 
 ---
 
@@ -17,22 +22,24 @@ npm install
 
 ---
 
-## 怎么用（日常检测）
+## 怎么用
 
-### 1. 启动桌面版
+### 1. 启动应用
+
+开发调试：
 
 ```bash
-npm run electron:dev
+npm run dev
 ```
 
-会同时拉起 Vite（`http://127.0.0.1:5173`）和 Electron 窗口。  
+会同时拉起 Vite（仅作渲染进程热更新）和 Electron 窗口。  
 若提示端口占用，先关掉占用 5173 的进程再启动。
 
-已打包产物也可用：
+已构建产物：
 
 ```bash
 npm run build
-npm run electron:start
+npm start
 ```
 
 ### 2. 上传素材
@@ -46,24 +53,21 @@ npm run electron:start
 
 ### 3. 看结果（左右分栏）
 
-桌面默认布局：
-
 | 区域 | 作用 |
 |------|------|
-| **左侧** | 上传素材 + 检测报告（Finding 列表） |
+| **左侧** | 上传素材 + 市场/语言 + 检测报告 |
 | **右侧 · 预览** | 分辨率 / 设备档位、机型框、FPS |
-| **右侧 · 控制台** | console 镜像、OOM 预警（Tab 切换） |
-
-窄窗口会自动改为上下堆叠。
+| **右侧 · 控制台** | console 镜像、OOM 预警 |
 
 预览区常用操作：
 
+- **市场规则**：切换合规规则，并注入 `window.curChannel`
+- **预览语言**：覆盖 `navigator.language` / `window.curLanguage`
 - **分辨率**：Google 插屏 / 手机 / 平板预设
-- **设备档位**（仅 Electron）：高端 / 中端 / 低端
-- **刷新**：重新加载预览
-- **重新采集探针**：再跑一小段运行时采集窗口
+- **设备档位**：高端 / 中端 / 低端
+- **刷新** / **重新采集探针**
 
-### 4. 设备档位（Electron）
+### 4. 设备档位
 
 | 档位 | 含义（简要） |
 |------|----------------|
@@ -71,21 +75,9 @@ npm run electron:start
 | 中端主流（默认） | CPU 4× · JS 堆 512MB · 4G |
 | 低端入门 | CPU 6× · JS 堆 256MB · SwiftShader · 弱 4G |
 
-**切换档位会重启应用**（V8 堆 / 软渲染必须在启动前生效）。重启后会尽量自动恢复上次上传的素材。
+CPU / 弱网可热切换；V8 堆上限与 SwiftShader 需重启进程（界面有「重启以应用」）。重启后会尽量自动恢复上次素材。
 
-> 边界：无法模拟 ARM、发热降频、真机杀进程、真实 Mali/Adreno 驱动差异。本工具是日常冒烟层，**发版前请用真机兜底**。
-
----
-
-## 纯浏览器模式（无档位）
-
-只做界面或规则开发时：
-
-```bash
-npm run dev
-```
-
-浏览器打开终端里的本地地址，上传流程相同，但预览走 blob iframe，**没有**堆上限 / SwiftShader / CDP 节流。
+> 边界：无法模拟 ARM、发热降频、真机杀进程、真实 GPU 驱动差异。本工具是日常冒烟层，**发版前请用真机兜底**。
 
 ---
 
@@ -107,9 +99,9 @@ npm run electron:build
 ## 其它命令
 
 ```bash
-npm test          # 规则单测
-npm run build     # 仅构建渲染层到 dist/
-npm run preview   # 预览 dist（浏览器）
+npm test                 # 规则单测
+npm run build            # 构建渲染层到 dist/
+npm run electron:start   # 用 dist 启动 Electron（等同 npm start）
 ```
 
 ---
