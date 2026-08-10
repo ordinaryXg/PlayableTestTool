@@ -459,3 +459,117 @@ describe('Facebook playable rules', () => {
     expect(format.some((f) => f.messageZh.includes('根目录'))).toBe(true);
   });
 });
+
+describe('Moloco playable rules', () => {
+  it('rejects zip upload and requires FbPlayableAd.onCTAClick', async () => {
+    const { molocoPlayableMarket } = await import('../markets/moloco-playable');
+    const html = `<!DOCTYPE html><html><body>
+      <script>new XMLHttpRequest()</script>
+      <button onclick="window.open('https://apps.apple.com/app/1')">Go</button>
+    </body></html>`;
+    const vfs = createVfs([{ path: 'index.html', bytes: new TextEncoder().encode(html) }]);
+    const ctx: RuleContext = {
+      vfs,
+      entryHtmlPath: 'index.html',
+      bundle: { fileName: 'ad.zip', byteLength: html.length, fileCount: 1, sourceKind: 'zip' },
+      market: molocoPlayableMarket,
+      refs: collectReferences(vfs, 'index.html'),
+      adMeta: parseAdMeta(html),
+    };
+    const format = molocoPlayableMarket.rules.find((r) => r.id === 'mo-format')!.runStatic!(ctx);
+    expect(format.some((f) => f.messageZh.includes('zip'))).toBe(true);
+    const cta = molocoPlayableMarket.rules.find((r) => r.id === 'mo-cta')!.runStatic!(ctx);
+    expect(cta.some((f) => f.severity === 'error')).toBe(true);
+    const xhr = molocoPlayableMarket.rules.find((r) => r.id === 'mo-no-xhr')!.runStatic!(ctx);
+    expect(xhr.some((f) => f.severity === 'error')).toBe(true);
+    const redirect = molocoPlayableMarket.rules.find((r) => r.id === 'mo-no-redirect')!.runStatic!(ctx);
+    expect(redirect.some((f) => f.severity === 'error')).toBe(true);
+  });
+
+  it('accepts single HTML with FbPlayableAd.onCTAClick()', async () => {
+    const { molocoPlayableMarket } = await import('../markets/moloco-playable');
+    const html = `<!DOCTYPE html><html><body>
+      <button onclick="FbPlayableAd.onCTAClick()">Install</button>
+    </body></html>`;
+    const vfs = createVfs([{ path: 'index.html', bytes: new TextEncoder().encode(html) }]);
+    const ctx: RuleContext = {
+      vfs,
+      entryHtmlPath: 'index.html',
+      bundle: { fileName: 'index.html', byteLength: html.length, fileCount: 1, sourceKind: 'html' },
+      market: molocoPlayableMarket,
+      refs: collectReferences(vfs, 'index.html'),
+      adMeta: parseAdMeta(html),
+    };
+    const format = molocoPlayableMarket.rules.find((r) => r.id === 'mo-format')!.runStatic!(ctx);
+    expect(format.filter((f) => f.severity === 'error')).toHaveLength(0);
+    const cta = molocoPlayableMarket.rules.find((r) => r.id === 'mo-cta')!.runStatic!(ctx);
+    expect(cta).toHaveLength(0);
+  });
+});
+
+describe('Mintegral playable rules', () => {
+  it('requires Mindworks APIs and matching zip/html names', async () => {
+    const { mintegralPlayableMarket } = await import('../markets/mintegral-playable');
+    const files = {
+      'wrong/index.html': `<!DOCTYPE html><html><body>
+        <script src="https://cdn.example.com/x.js"></script>
+        <button>Go</button>
+      </body></html>`,
+    };
+    const entries = Object.entries(files).map(([path, text]) => ({
+      path,
+      bytes: new TextEncoder().encode(text),
+    }));
+    const vfs = createVfs(entries);
+    const entryHtmlPath = findEntryHtml(vfs);
+    const ctx: RuleContext = {
+      vfs,
+      entryHtmlPath,
+      bundle: {
+        fileName: 'demo.zip',
+        byteLength: 100,
+        fileCount: 1,
+        sourceKind: 'zip',
+      },
+      market: mintegralPlayableMarket,
+      refs: collectReferences(vfs, entryHtmlPath),
+      adMeta: parseAdMeta(vfs.readText(entryHtmlPath!) || ''),
+    };
+    const naming = mintegralPlayableMarket.rules.find((r) => r.id === 'mtg-naming')!.runStatic!(ctx);
+    expect(naming.some((f) => f.severity === 'error')).toBe(true);
+    const api = mintegralPlayableMarket.rules.find((r) => r.id === 'mtg-api')!.runStatic!(ctx);
+    expect(api.some((f) => f.messageZh.includes('install'))).toBe(true);
+    expect(api.some((f) => f.messageZh.includes('gameEnd'))).toBe(true);
+    expect(api.some((f) => f.messageZh.includes('gameReady'))).toBe(true);
+    const external = mintegralPlayableMarket.rules.find((r) => r.id === 'mtg-no-external')!.runStatic!(
+      ctx,
+    );
+    expect(external.length).toBeGreaterThan(0);
+  });
+
+  it('accepts valid Mindworks package', async () => {
+    const { mintegralPlayableMarket } = await import('../markets/mintegral-playable');
+    const html = `<!DOCTYPE html><html><body>
+      <script>
+        function gameStart(){}
+        window.gameReady && window.gameReady();
+        function end(){ window.gameEnd && window.gameEnd(); }
+        function cta(){ window.install && window.install(); }
+      </script>
+      <button onclick="cta()">Install</button>
+    </body></html>`;
+    const vfs = createVfs([{ path: 'demo/demo.html', bytes: new TextEncoder().encode(html) }]);
+    const ctx: RuleContext = {
+      vfs,
+      entryHtmlPath: 'demo/demo.html',
+      bundle: { fileName: 'demo.zip', byteLength: html.length, fileCount: 1, sourceKind: 'zip' },
+      market: mintegralPlayableMarket,
+      refs: collectReferences(vfs, 'demo/demo.html'),
+      adMeta: parseAdMeta(html),
+    };
+    const naming = mintegralPlayableMarket.rules.find((r) => r.id === 'mtg-naming')!.runStatic!(ctx);
+    expect(naming.filter((f) => f.severity === 'error')).toHaveLength(0);
+    const api = mintegralPlayableMarket.rules.find((r) => r.id === 'mtg-api')!.runStatic!(ctx);
+    expect(api.filter((f) => f.severity === 'error')).toHaveLength(0);
+  });
+});

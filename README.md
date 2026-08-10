@@ -4,8 +4,8 @@
 
 已启用市场规则：
 
-- **Google** / **AppLovin** / **Facebook** / **Unity**（完整合规规则）
-- **Moloco** / **Liftoff** / **Mintegral**（仅预览 `curChannel`，规则未接入）
+- **Google** / **AppLovin** / **Facebook** / **Unity** / **Moloco** / **Mintegral**（完整合规规则）
+- **Liftoff**（仅预览 `curChannel`，规则未接入）
 
 本工具**仅提供桌面应用**，不提供浏览器网页版。
 

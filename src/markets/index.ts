@@ -3,6 +3,8 @@ import { googleAppPlayableMarket } from './google-app-playable';
 import { applovinPlayableMarket } from './applovin-playable';
 import { facebookPlayableMarket } from './facebook-playable';
 import { unityPlayableMarket } from './unity-playable';
+import { molocoPlayableMarket } from './moloco-playable';
+import { mintegralPlayableMarket } from './mintegral-playable';
 import type { PreviewChannel } from '../preview/channels';
 
 /** Channel preview only: injects curChannel; no market-specific rules yet. */
@@ -25,9 +27,9 @@ const markets: MarketModule[] = [
   { ...applovinPlayableMarket, channel: 'AppLovin', labelZh: 'AppLovin', rulesReady: true },
   { ...facebookPlayableMarket, labelZh: 'Facebook', rulesReady: true },
   { ...unityPlayableMarket, labelZh: 'Unity', rulesReady: true },
-  channelPreviewMarket('moloco-playable', 'Moloco'),
+  molocoPlayableMarket,
+  mintegralPlayableMarket,
   channelPreviewMarket('liftoff-playable', 'Liftoff'),
-  channelPreviewMarket('mintegral-playable', 'Mintegral'),
 ];
 
 export function listMarkets(): MarketModule[] {
