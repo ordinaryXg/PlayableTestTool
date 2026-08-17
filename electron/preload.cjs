@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('pvDesktop', {
   reloadPreview: (metrics) => ipcRenderer.invoke('pv:reloadPreview', metrics),
   updatePreviewBounds: (bounds) => ipcRenderer.invoke('pv:updatePreviewBounds', bounds),
   applyPreviewMetrics: (metrics) => ipcRenderer.invoke('pv:applyPreviewMetrics', metrics),
+  openPreviewPopup: (metrics) => ipcRenderer.invoke('pv:openPreviewPopup', metrics),
+  closePreviewPopup: () => ipcRenderer.invoke('pv:closePreviewPopup'),
   saveBundleForRestore: (payload) => ipcRenderer.invoke('pv:saveBundleForRestore', payload),
   loadRestoredBundle: () => ipcRenderer.invoke('pv:loadRestoredBundle'),
   clearRestoredBundle: () => ipcRenderer.invoke('pv:clearRestoredBundle'),

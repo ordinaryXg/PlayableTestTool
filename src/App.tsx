@@ -147,15 +147,7 @@ export default function App() {
         return;
       }
       if (data.type === 'fps') {
-        const value = Number(data.detail?.fps);
-        if (!Number.isFinite(value)) return;
-        setFpsStats({
-          fps: value,
-          heapUsedMB:
-            typeof data.detail?.heapUsedMB === 'number' ? data.detail.heapUsedMB : undefined,
-          heapLimitMB:
-            typeof data.detail?.heapLimitMB === 'number' ? data.detail.heapLimitMB : undefined,
-        });
+        // Electron desktop: FPS comes from main-process poll (pv:fps), not inject probe.
         return;
       }
       probeEventsRef.current.push({
@@ -364,6 +356,17 @@ export default function App() {
     }
   };
 
+  const onOpenLargePreview = () => {
+    const api = getDesktopApi();
+    if (!api || previewUrl !== ELECTRON_PREVIEW_TOKEN) return;
+    setFpsStats(null);
+    void api.openPreviewPopup({
+      width: metricsRef.current.width,
+      height: metricsRef.current.height,
+      dpr: metricsRef.current.dpr,
+    });
+  };
+
   const onPresetChange = async (id: string) => {
     if (!api) return;
     pushConsole('info', `正在热切换设备档位为 ${id}（CPU/网络立即生效）…`);
@@ -567,6 +570,7 @@ export default function App() {
               active={rightTab === 'preview'}
               onRefresh={onRefresh}
               onRecapture={onRecapture}
+              onOpenLargePreview={onOpenLargePreview}
               onPresetChange={(id) => void onPresetChange(id)}
               onRelaunchForPreset={() => void onRelaunchForPreset()}
               onMetricsChange={onMetricsChange}

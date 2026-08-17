@@ -20,6 +20,7 @@ interface Props {
   desktopPresets?: DesktopPresetListItem[];
   onRefresh: () => void;
   onRecapture: () => void;
+  onOpenLargePreview?: () => void;
   onPresetChange?: (id: string) => void;
   onRelaunchForPreset?: () => void;
   onMetricsChange?: (metrics: {
@@ -54,6 +55,7 @@ export function PreviewPane({
   desktopPresets = [],
   onRefresh,
   onRecapture,
+  onOpenLargePreview,
   onPresetChange,
   onRelaunchForPreset,
   onMetricsChange,
@@ -354,6 +356,15 @@ export function PreviewPane({
         </div>
 
         <div className="preview-actions">
+          <button
+            type="button"
+            className="btn-ghost btn-large-preview"
+            disabled={!previewUrl}
+            title="在新窗口中以更大尺寸预览"
+            onClick={() => onOpenLargePreview?.()}
+          >
+            大屏
+          </button>
           <button type="button" className="btn-ghost" disabled={!previewUrl} onClick={onRefresh}>
             刷新
           </button>

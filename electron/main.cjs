@@ -154,12 +154,16 @@ function startMemoryWatch() {
 
 function registerIpc() {
   ipcMain.on('pv:fps', (event, payload) => {
+    if (!previewManager.shouldForwardPreviewIpc(event.sender)) return;
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('pv:fps', payload);
     }
   });
 
-  ipcMain.on('pv:probe', (_event, payload) => {
+  ipcMain.on('pv:probe', (event, payload) => {
+    if (!previewManager.shouldForwardPreviewIpc(event.sender)) return;
+    // FPS/heap is sampled centrally via pv:fps — ignore inject duplicate.
+    if (payload && payload.type === 'fps') return;
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('pv:probe', payload);
     }
@@ -250,6 +254,13 @@ function registerIpc() {
   });
   ipcMain.handle('pv:applyPreviewMetrics', async (_e, metrics) => {
     await previewManager.applyMetrics(metrics);
+    return { ok: true };
+  });
+  ipcMain.handle('pv:openPreviewPopup', async (_e, metrics) =>
+    previewManager.openPreviewPopup(metrics),
+  );
+  ipcMain.handle('pv:closePreviewPopup', () => {
+    previewManager.closePreviewPopup();
     return { ok: true };
   });
 

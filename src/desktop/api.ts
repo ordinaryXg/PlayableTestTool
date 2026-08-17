@@ -75,6 +75,13 @@ export type PvDesktopApi = {
     dpr: number;
     pageScale?: number;
   }) => Promise<{ ok: boolean }>;
+  openPreviewPopup: (metrics?: {
+    width: number;
+    height: number;
+    dpr: number;
+    pageScale?: number;
+  }) => Promise<{ ok: boolean; error?: string; focused?: boolean }>;
+  closePreviewPopup: () => Promise<{ ok: boolean }>;
   saveBundleForRestore: (payload: {
     fileName: string;
     base64: string;
