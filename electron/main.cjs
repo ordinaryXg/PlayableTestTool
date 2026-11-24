@@ -14,6 +14,7 @@ const {
   clearVfs,
 } = require('./protocol.cjs');
 const previewManager = require('./previewManager.cjs');
+const { shouldOpenInSystemBrowser } = require('./externalUrl.cjs');
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -117,7 +118,6 @@ function createWindow() {
   const devUrl = process.env.VITE_DEV_SERVER_URL;
   if (devUrl) {
     void mainWindow.loadURL(devUrl);
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     void mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
@@ -315,8 +315,11 @@ app.on('window-all-closed', () => {
 });
 
 app.on('web-contents-created', (_e, contents) => {
+  if (contents.getType() === 'devtools') return;
   contents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    if (shouldOpenInSystemBrowser(url)) {
+      void shell.openExternal(url);
+    }
     return { action: 'deny' };
   });
 });
